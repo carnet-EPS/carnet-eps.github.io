@@ -204,6 +204,38 @@ export function confirmer({ titre, message = '', detail = '', action = 'Supprime
   });
 }
 
+// Choix entre plusieurs actions, quand « Annuler / Confirmer » ne suffit pas (ex. convertir ou garder
+// les notes au changement de barème). Même feuille modale que `confirmer` : focus initial sur
+// Annuler, retour du focus au déclencheur, clic sur le fond ou Échap = annulation. Résout la valeur
+// du choix, ou null si l'utilisateur annule.
+export function choisir({ titre, message = '', detail = '', choix = [] }) {
+  return new Promise((resoudre) => {
+    const declencheur = document.activeElement;
+    const dlg = el('dialog', { class: 'feuille feuille-confirm', 'aria-label': titre });
+    let valeur = null;
+    const btnAnnuler = el('button', { class: 'btn', type: 'button' }, 'Annuler');
+    btnAnnuler.addEventListener('click', () => dlg.close());
+    const boutons = choix.map((c) => {
+      const b = el('button', { class: c.principal ? 'btn btn-principal' : 'btn', type: 'button' }, c.libelle);
+      b.addEventListener('click', () => { valeur = c.valeur; dlg.close(); });
+      return b;
+    });
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+    dlg.addEventListener('close', () => {
+      dlg.remove();
+      if (declencheur?.isConnected) declencheur.focus();
+      resoudre(valeur);
+    });
+    dlg.append(el('h3', {}, titre));
+    if (message) dlg.append(el('p', {}, message));
+    if (detail) dlg.append(el('p', { class: 'confirm-detail' }, detail));
+    dlg.append(el('div', { class: 'rang-btn' }, btnAnnuler, ...boutons));
+    document.body.append(dlg);
+    dlg.showModal();
+    btnAnnuler.focus();
+  });
+}
+
 // Notification brève avec action optionnelle (ex. « Supprimé — Annuler »), auto-disparition.
 // Les toasts S'EMPILENT (max 3, le plus ancien cède la place — audit A12) : un « Annuler »
 // n'est plus perdu quand deux suppressions s'enchaînent. duree: Infinity = reste affiché.

@@ -12,10 +12,10 @@ const texteBadgePubliee = (ev) => (ev.publieePronote
 // (codes ABS/DISP/NN laissés en lignes vides + liste à saisir à la main, garde-fou effectif) ;
 // voie B = CSV Nom;Prénom;Note. Type « afl » = positionnement libre, non exportable vers Pronote.
 
-import { enregistrerVue, el, carte, champ, champTexte, confirmer, toast } from '../ui.js';
+import { enregistrerVue, el, carte, champ, champTexte, confirmer, choisir, toast } from '../ui.js';
 import { tous, lire, lireMeta, parIndex, enregistrer, supprimerLot, restaurer, telechargerTexte, champCSV, mettreAJourEvaluation } from '../io.js';
 import { isoAujourdhui, dateFR, trierEleves, trierClasses, baremeDe, formatFR, inaptitudesActives } from '../metier.js';
-import { validerGrille } from '../grilles-calcul.js';
+import { validerGrille, calculerGrille } from '../grilles-calcul.js';
 import { sauverPrefs } from '../state.js';
 
 const CODES = ['ABS', 'DISP', 'NN'];
@@ -273,20 +273,59 @@ async function vueEval(c, evalId) {
   // note déjà saisie dépasse le nouveau barème. La grille est re-rendue (bornes de saisie, carte
   // « Vers Pronote ») via le rafraîchissement complet de la vue, déjà utilisé ailleurs (ex. eleves.js).
   if (ev.type === 'bareme') {
+    // Changements de barème SÉRIALISÉS : un second « change » arrivé pendant que la question est
+    // posée ouvrait une seconde question par-dessus la première. Il attend désormais la réponse,
+    // puis constate que le barème a déjà changé.
+    let fileBareme = Promise.resolve();
+    const changerBareme = async (b) => {
+      // Les saisies en vol d'abord : sinon cette garde lisait une grille périmée. La transaction
+      // revérifie de toute façon les notes EN BASE (AUD-001).
+      await notesAJour();
+      const ancien = baremeDe(ev);
+      if (b === ancien) return;
+      // Changer le maximum d'une évaluation déjà notée ne dit pas ce que deviennent les notes :
+      // 8/10 devient-il 16/20, ou reste-t-il 8 points sur 20 ? Les deux sont légitimes, changement
+      // d'échelle ou barème mal saisi : l'application DEMANDE au lieu de garder les points en
+      // silence (stratégie V3, lot V3-B3, décision de l'enseignant). Les codes ne bougent pas.
+      const chiffrees = [...notesMap.values()].filter((n) => typeof n.valeur === 'number');
+      const convertie = (x) => Math.min(b, Math.round((x * b) / ancien * 100) / 100);
+      let convertir = false;
+      if (chiffrees.length) {
+        const exemple = chiffrees[0].valeur;
+        const pl = chiffrees.length > 1 ? 's' : '';
+        const choix = await choisir({
+          titre: `Passer de /${formatFR(ancien)} à /${formatFR(b)}`,
+          message: `${chiffrees.length} note${pl} déjà saisie${pl}. Que deviennent-elles ?`,
+          detail: `Convertir : ${formatFR(exemple)}/${formatFR(ancien)} devient ${formatFR(convertie(exemple))}/${formatFR(b)}. Garder les points : ${formatFR(exemple)}/${formatFR(b)}. Les codes ABS, DISP et NN ne changent pas.`,
+          choix: [
+            { valeur: 'garder', libelle: 'Garder les points' },
+            { valeur: 'convertir', libelle: 'Convertir les notes', principal: true },
+          ],
+        });
+        if (!choix) throw new Error('changement annulé, le barème reste inchangé');
+        convertir = choix === 'convertir';
+      }
+      if (!convertir) {
+        const depassement = chiffrees.find((n) => n.valeur > b);
+        if (depassement) throw new Error(`une note saisie (${formatFR(depassement.valeur)}) dépasse ${formatFR(b)} : convertissez les notes ou corrigez-la d’abord`);
+      }
+      // Conversion écrite dans la MÊME transaction que le barème, chaque note comparée à celle
+      // que la vue croit en base : jamais un barème converti avec des notes à moitié réécrites.
+      const operations = convertir ? chiffrees.map((n) => ({ store: 'notes', op: 'put', valeur: { ...n, valeur: convertie(n.valeur) } })) : [];
+      const attentes = convertir ? chiffrees.map((n) => ({ id: n.id, note: n })) : [];
+      revisionNotes++;
+      retirerZoneSecours();
+      await sauverEv({ bareme: b, ...(ev.publieePronote ? { publieeObsolete: true } : {}) }, operations, attentes);
+      await rafraichir();
+    };
     rangIdentite.append(champTexte({
       id: 'ge-bareme', libelle: 'Barème ( /x )', type: 'number', valeur: String(ev.bareme ?? ''),
       onChange: async (v) => {
         const b = Number(v);
         if (!(Number.isFinite(b) && b >= 1 && b <= 200)) throw new Error('le barème doit être compris entre 1 et 200');
-        // Les saisies en vol d'abord : sinon cette garde lisait une grille périmée. La transaction
-        // revérifie de toute façon les notes EN BASE (AUD-001).
-        await notesAJour();
-        const depassement = [...notesMap.values()].find((n) => typeof n.valeur === 'number' && n.valeur > b);
-        if (depassement) throw new Error(`une note saisie (${formatFR(depassement.valeur)}) dépasse ${formatFR(b)}`);
-        revisionNotes++;
-        retirerZoneSecours();
-        await sauverEv({ bareme: b, ...(ev.publieePronote ? { publieeObsolete: true } : {}) });
-        await rafraichir();
+        const suite = fileBareme.catch(() => {}).then(() => changerBareme(b));
+        fileBareme = suite;
+        return suite;
       },
     }));
   }
@@ -411,18 +450,32 @@ async function vueEval(c, evalId) {
     const btnCopier = el('button', { class: 'btn btn-principal' }, 'Copier pour Pronote');
     const btnCSV = el('button', { class: 'btn' }, 'Exporter CSV');
 
+    // Une note de grille calculée sur une PARTIE des critères part dans Pronote comme une note
+    // complète : l'écran de la grille affichait « 2/4 critères évalués », la copie rien. Elle est
+    // désormais listée dans le récapitulatif, comme les codes à saisir à la main.
     const construireColonne = () => {
       const lignes = [];
       const codes = [];
+      const partiels = [];
       eleves.forEach((e, i) => {
         const v = notesMap.get(e.id)?.valeur;
-        if (typeof v === 'number') lignes.push(formatFR(v));
-        else {
+        if (typeof v === 'number') {
+          lignes.push(formatFR(v));
+          if (ev.type === 'grille') {
+            const r = calculerGrille(ev.grille, notesMap.get(e.id)?.detail || {}, bareme);
+            const manque = r.total - r.evalues;
+            if (manque > 0) {
+              partiels.push(ev.grille.nonEvalue === 'zero'
+                ? `ligne ${i + 1} : ${e.nom} ${e.prenom}, ${manque} critère${manque > 1 ? 's' : ''} non évalué${manque > 1 ? 's' : ''} compté${manque > 1 ? 's' : ''} zéro`
+                : `ligne ${i + 1} : ${e.nom} ${e.prenom}, note calculée sur ${r.evalues} critère${r.evalues > 1 ? 's' : ''} sur ${r.total}`);
+            }
+          }
+        } else {
           lignes.push('');
           if (v) codes.push(`ligne ${i + 1} — ${e.nom} ${e.prenom} : ${v}`);
         }
       });
-      return { texte: lignes.join('\r\n'), codes, vides: lignes.filter((l) => l === '').length };
+      return { texte: lignes.join('\r\n'), codes, partiels, vides: lignes.filter((l) => l === '').length };
     };
 
     // « Publiée » n'est marquée que sur PREUVE de copie (presse-papiers réussi, ou copie
@@ -442,7 +495,7 @@ async function vueEval(c, evalId) {
       majMarquer();
     });
 
-    const apresExport = async (codes, vides, revisionCopie, notesCopie) => {
+    const apresExport = async (codes, vides, revisionCopie, notesCopie, partiels = []) => {
       // La remontée vient d'être refaite : la demande de mise à jour tombe, SAUF si la grille a changé
       // depuis que le texte copié a été figé. Et les notes copiées sont revérifiées en base dans la
       // transaction : un autre onglet a pu les modifier pendant la copie (AUD-002).
@@ -456,6 +509,8 @@ async function vueEval(c, evalId) {
           `${eleves.length} lignes dont ${vides} vide${vides > 1 ? 's' : ''} (${eleves.length - vides} note${eleves.length - vides > 1 ? 's' : ''}, ordre alphabétique). Garde-fou : vérifiez que le service Pronote compte bien ${eleves.length} élèves et le barème /${bareme}.`),
         ...(codes.length ? [el('p', {}, 'À saisir à la main dans Pronote :'),
           el('ul', {}, ...codes.map((t) => el('li', {}, t)))] : []),
+        ...(partiels.length ? [el('p', { class: 'partiels-titre' }, 'Notes calculées sur une partie seulement des critères, copiées comme des notes complètes :'),
+          el('ul', { class: 'partiels' }, ...partiels.map((t) => el('li', {}, t)))] : []),
       );
     };
 
@@ -488,18 +543,19 @@ async function vueEval(c, evalId) {
         statutExp.className = 'statut statut-erreur';
         return;
       }
-      const { texte, codes, vides } = construireColonne();
+      const { texte, codes, vides, partiels } = construireColonne();
       const revisionCopie = revisionNotes;
       // Figées AVEC le texte : ce sont ces notes-là qui partent, et elles seules que la publication
       // peut confirmer.
       const notesCopie = structuredClone(eleves.map((e) => ({ id: `${evalId}_${e.id}`, note: notesMap.get(e.id) || null })));
       try {
         await navigator.clipboard.writeText(texte);
-        statutExp.textContent = 'Colonne copiée dans le presse-papiers ✓';
+        statutExp.textContent = 'Colonne copiée dans le presse-papiers ✓'
+          + (partiels.length ? ` · ${partiels.length} note${partiels.length > 1 ? 's' : ''} sur une partie des critères, voir ci-dessous` : '');
         statutExp.className = 'statut statut-ok';
         zoneSecours.replaceChildren();
         try {
-          await apresExport(codes, vides, revisionCopie, notesCopie); // copie réussie = preuve
+          await apresExport(codes, vides, revisionCopie, notesCopie, partiels); // copie réussie = preuve
         } catch (e) {
           // Surtout pas la zone de secours : la colonne EST copiée, c'est la publication qui échoue.
           statutExp.textContent = `Colonne copiée, mais publication non confirmée : ${e?.message || e}`;
@@ -511,7 +567,7 @@ async function vueEval(c, evalId) {
         const zone = el('textarea', { rows: 8, 'aria-label': 'Colonne à copier' }); // enveloppée dans .champ ci-dessous (style — B49)
         zone.value = texte;
         zone.addEventListener('copy', () => {
-          apresExport(codes, vides, revisionCopie, notesCopie).catch((e) => {
+          apresExport(codes, vides, revisionCopie, notesCopie, partiels).catch((e) => {
             statutExp.textContent = `Publication non confirmée : ${e?.message || e}`;
             statutExp.className = 'statut statut-erreur';
           });
