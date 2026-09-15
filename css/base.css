@@ -134,8 +134,9 @@ body {
 }
 
 /* Marqueur de version d'essai (FON-01) : une ligne ambre sur l'en-tête bleu, identique dans les deux
-   thèmes (l'en-tête ne change pas de couleur), disparaît à l'impression avec lui. UNE ligne au plus, même
-   texte agrandi : sur 320 px à 200 %, le bandeau sur plusieurs lignes doublait l'en-tête collant (revue v0.13.1). */
+   thèmes (l'en-tête ne change pas de couleur), disparaît à l'impression avec lui. Texte volontairement COURT :
+   il tient sur une ligne aux largeurs de téléphone et sur deux au plus en texte agrandi, sans jamais être coupé
+   — une version « une seule ligne » tronquait « données fictives », le mot qui porte la consigne (revue v0.13.1). */
 .essai {
   margin: 6px 0 0;
   padding: 4px 10px;
@@ -144,9 +145,6 @@ body {
   color: #1c1c1c;
   font-size: 0.85rem;
   line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* ---- Zone de contenu ---- */

@@ -173,7 +173,7 @@ window.addEventListener('hashchange', naviguer);
 if (MODE_ESSAI) {
   document.title = 'ESSAI — Carnet EPS';
   document.querySelector('.entete')?.append(el('div', { class: 'essai', role: 'region', 'aria-label': 'Version d’essai' },
-    el('strong', {}, 'Version d’essai'), ' — n’y saisissez que des données fictives.'));
+    el('strong', {}, 'Version d’essai'), ' · données fictives'));
 }
 
 // Marge de focus sous l'en-tête collant (B05) : sa hauteur réelle varie (bandeau, police agrandie, largeur).
