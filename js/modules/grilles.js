@@ -93,6 +93,10 @@ async function editeur(c,id) {
   form.append(identite,niveaux,criteres,regles,el('div',{class:'grille-actions'},affichageTotal,sauver),statut); c.append(form); rendreN(); rendreC(); majTotal();
 }
 
+// File d'écriture PARTAGÉE entre les ouvertures successives de la saisie : une vue quittée puis rouverte pendant
+// une rafale relisait un état intermédiaire, et son tap suivant était refusé « autre onglet » (revue v0.13.1).
+let fileEcritures=Promise.resolve();
+
 async function saisir(c,id) {
   const ev = await lire('evaluations',id);
   if (!ev?.grille) {c.append(carte('Évaluation par grille introuvable'));return;}
@@ -101,11 +105,27 @@ async function saisir(c,id) {
   const classe = seq && await lire('classes',seq.classeId);
   if (!classe) {c.append(carte('Classe introuvable'));return;}
   const eleves=(await parIndex('eleves','classeId',classe.id)).filter(e => e.actif!==false).sort(trierEleves);
+  await fileEcritures.catch(() => {});
   const notes=new Map((await parIndex('notes','evaluationId',id)).map(n => [n.eleveId,n]));
   const g=ev.grille;
   c.append(retour(`#/notes/eval/${id}`),carte(`${ev.titre} — ${classe.nom}`,`${g.titre} · barème /${ev.bareme} · ${regle(g)}`));
   if (!eleves.length) {c.append(carte('Aucun élève actif'));return;}
-  let index=0, mode='eleve', critere=g.criteres[0].id, occupe=false;
+  let index=0, mode='eleve', critere=g.criteres[0].id;
+  // Écritures SÉRIALISÉES, même motif que notes.js : un tap arrivé pendant l'enregistrement du précédent
+  // attend son tour. L'ancien verrou « occupe » désactivait tous les contrôles — sans style visible — et
+  // JETAIT le tap suivant (audit indépendant 2026-09-16, FON-05 / PER-05).
+  let enAttente=0, erreurs=[];
+  // Détail VOULU par élève pendant une rafale : chaque tap se juge sur l'état laissé par les taps précédents,
+  // ni sur l'écran rendu ni sur la base. « Retoucher efface » donne ainsi le même résultat, que le second tap
+  // arrive pendant ou après l'écriture du premier (revue v0.13.1). Vidé en fin de rafale : la base refait foi.
+  const voulus=new Map();
+  const detailVoulu=e => voulus.get(e.id) ?? notes.get(e.id)?.detail ?? {};
+  const connecte=cle => cle ? [...c.querySelectorAll('[data-grille-focus]')].find(x => x.dataset.grilleFocus===cle) : undefined;
+  const texteSelection=(d,cr) => {const sel=g.niveaux.find(n => n.cle===cleChoix(d[cr.id]));return sel ? `${sel.libelle} · ${formatFR(pointsChoix(g,d[cr.id])*cr.poids)} points` : 'Non évalué';};
+  const libelleNiveau=(d,cr,n) => {
+    const ajuste=cleChoix(d[cr.id])===n.cle && typeof d[cr.id]==='object';
+    return `${n.libelle} · ${ajuste ? `${formatFR(pointsChoix(g,d[cr.id])*cr.poids)} / ${formatFR(n.points*cr.poids)} points` : `${formatFR(n.points*cr.poids)} pt`}`;
+  };
   const nav=el('div',{class:'grille-navigation no-print'}), contenu=el('div'), statut=el('p',{role:'status',class:'statut'});
   const selEleve=el('select',{'aria-label':'Élève à évaluer'},...eleves.map((e,i) => el('option',{value:String(i)},`${e.nom} ${e.prenom}`)));
   const selCritere=el('select',{'aria-label':'Critère à évaluer'},...g.criteres.map(cr => el('option',{value:cr.id},cr.libelle)));
@@ -123,29 +143,78 @@ async function saisir(c,id) {
   });
   nav.append(el('label',{class:'champ'},'Saisir ou consulter',selMode),groupeEleve,groupeCritere,el('div',{class:'rang-btn'},bouton('Imprimer',() => window.print()),el('a',{class:'btn',href:`#/notes/eval/${id}`},'Notes et export Pronote'),reutiliser));
   c.append(nav,statut,contenu);
-  if(g.pointsAjustables)c.insertBefore(el('p',{class:'no-print'},'Touchez une case pour choisir le niveau. Appui long ou bouton Ajuster : choisir les points. Retoucher le niveau sélectionné efface ce critère.'),contenu);
-  async function enregistrerChoix(e,detail,code=undefined) {
-    if(occupe)return; occupe=true;
-    const focusAvant=document.activeElement?.dataset.grilleFocus;
-    const controles=[...c.querySelectorAll('button,select')]; controles.forEach(x => x.disabled=true);
+  // La règle d'effacement vaut pour toutes les grilles : elle n'était affichée qu'avec les points ajustables (revue v0.13.1).
+  c.insertBefore(el('p',{class:'no-print grille-consigne'},`Touchez une case pour choisir le niveau. Retoucher le niveau sélectionné efface ce critère.${g.pointsAjustables ? ' Appui long ou bouton Ajuster : choisir les points.' : ''}`),contenu);
+  // `modifier(detail)` est une fonction pure, décidée au tap. Elle s'applique deux fois : tout de suite sur le
+  // détail voulu (retour immédiat de la ligne touchée), puis AU MOMENT de l'écriture sur l'état enregistré le
+  // plus récent — deux taps rapides sur deux critères du même élève se cumulent, et un tap refusé n'est pas
+  // réécrit en douce par l'écriture suivante.
+  function enregistrerChoix(e,modifier,{code,cle,cr}={}) {
+    enAttente++;
+    voulus.set(e.id,modifier(detailVoulu(e)));
+    const cible=connecte(cle);
+    cible?.setAttribute('aria-busy','true'); // la case touchée se voit ; rien n'est verrouillé
+    const bloc=cr && cible?.closest('.grille-critere');
+    if(bloc)majLigne(bloc,e,cr);
     statut.textContent='Enregistrement…'; statut.className='statut';
-    try {
-      const calcul=calculerGrille(g,detail,ev.bareme);
-      // Une observation n'annule pas une dispense/absence. Seul le sélecteur de statut
-      // peut reprendre la notation (null explicite) ; undefined conserve le code actuel.
-      const codeActuel=typeof notes.get(e.id)?.valeur==='string' ? notes.get(e.id).valeur : null;
-      const valeur=(code===undefined ? codeActuel : code) || calcul.valeur;
-      const rec={id:`${id}_${e.id}`,evaluationId:id,eleveId:e.id,valeur,detail,commentaire:notes.get(e.id)?.commentaire || ''};
-      await mettreAJourEvaluation(id, {},
-        [{store:'notes',...(valeur===null ? {op:'delete',cle:rec.id} : {op:'put',valeur:rec})}],
-        [{id:rec.id,note:notes.get(e.id) || null}]);
-      if(valeur===null)notes.delete(e.id);else notes.set(e.id,rec);
-      statut.textContent='Enregistré ✓'; statut.className='statut statut-ok';
-    } catch(err) {statut.textContent=`Non enregistré : ${err.message}`;statut.className='statut statut-erreur';}
-    finally {
-      occupe=false;controles.forEach(x => x.disabled=false);rendre();
-      if(focusAvant && c.isConnected) [...c.querySelectorAll('[data-grille-focus]')].find(x => x.dataset.grilleFocus===focusAvant)?.focus({preventScroll:true});
+    const suite=fileEcritures.catch(() => {}).then(async () => {
+      try {
+        const detail=modifier(notes.get(e.id)?.detail || {});
+        const calcul=calculerGrille(g,detail,ev.bareme);
+        // Une observation n'annule pas une dispense/absence. Seul le sélecteur de statut
+        // peut reprendre la notation (null explicite) ; undefined conserve le code actuel.
+        const codeActuel=typeof notes.get(e.id)?.valeur==='string' ? notes.get(e.id).valeur : null;
+        const valeur=(code===undefined ? codeActuel : code) || calcul.valeur;
+        const rec={id:`${id}_${e.id}`,evaluationId:id,eleveId:e.id,valeur,detail,commentaire:notes.get(e.id)?.commentaire || ''};
+        await mettreAJourEvaluation(id, {},
+          [{store:'notes',...(valeur===null ? {op:'delete',cle:rec.id} : {op:'put',valeur:rec})}],
+          [{id:rec.id,note:notes.get(e.id) || null}]);
+        if(valeur===null)notes.delete(e.id);else notes.set(e.id,rec);
+      } catch(err) {erreurs.push({qui:`${e.nom} ${e.prenom}`,err});}
+      finally {
+        enAttente--;
+        // Une seule mise à jour par rafale, quand la dernière écriture est passée : l'écran montre l'état
+        // enregistré, et une erreur survenue en cours de rafale n'est pas recouverte par le succès suivant.
+        if(enAttente===0) {
+          voulus.clear();
+          if(erreurs.length) {
+            // Chaque élève avec SA cause : on a pu passer à un autre élève pendant l'écriture (plus de verrou).
+            const causes=new Map();
+            for(const x of erreurs)causes.set(x.qui,x.err?.message || String(x.err));
+            const texte=`Non enregistré pour ${[...causes].map(([qui,cause]) => `${qui} (${cause})`).join(', ')}`;
+            erreurs=[];
+            statut.textContent=texte; statut.className='statut statut-erreur';
+            if(!c.isConnected)toast(texte); // vue quittée : le statut est détaché, l'échec doit se voir (comme notes.js)
+          } else {statut.textContent='Enregistré ✓';statut.className='statut statut-ok';}
+          if(c.isConnected)actualiser();
+        }
+      }
+    });
+    fileEcritures=suite;
+    return suite;
+  }
+  // Retour immédiat d'un tap, sans reconstruire l'écran : sélection, libellés et surbrillance de la ligne touchée.
+  function majLigne(bloc,e,cr) {
+    const d=detailVoulu(e), choix=cleChoix(d[cr.id]);
+    bloc.querySelector('.grille-selection').textContent=texteSelection(d,cr);
+    for(const x of bloc.querySelectorAll('[data-niveau-cle]')) {
+      const actif=x.dataset.niveauCle===choix, n=g.niveaux.find(y => y.cle===x.dataset.niveauCle);
+      x.setAttribute('aria-pressed',String(actif));x.classList.toggle('btn-principal',actif);
+      if(n)x.textContent=libelleNiveau(d,cr,n);
     }
+  }
+  // Fin de rafale : l'écran se met à jour EN PLACE. Reconstruire les cases détachait celle qu'on touchait, qu'on
+  // avait sous la souris ou au clavier : appui long qui ne s'ouvrait plus, clic perdu, focus repris (revue v0.13.1).
+  function actualiser() {
+    for(const x of c.querySelectorAll('[aria-busy]'))x.removeAttribute('aria-busy');
+    if(mode==='bilan') {rendre();return;} // aucun contrôle de saisie à préserver : le tableau se recalcule
+    const eleveDe=idEleve => eleves.find(x => x.id===idEleve);
+    for(const bloc of contenu.querySelectorAll('.grille-critere')) {
+      const e=eleveDe(bloc.dataset.eleve), cr=g.criteres.find(x => x.id===bloc.dataset.critere);
+      if(e && cr)majLigne(bloc,e,cr);
+    }
+    for(const p of contenu.querySelectorAll('[data-score-eleve]')) {const e=eleveDe(p.dataset.scoreEleve);if(e)p.textContent=score(e);}
+    for(const s of contenu.querySelectorAll('select[data-statut-eleve]')) {const n=notes.get(s.dataset.statutEleve);s.value=typeof n?.valeur==='string' ? n.valeur : '';}
   }
   function score(e) {
     const n=notes.get(e.id), r=calculerGrille(g,n?.detail || {},ev.bareme);
@@ -153,20 +222,19 @@ async function saisir(c,id) {
     return r.valeur===null ? 'Aucune note · aucun critère évalué' : `${formatFR(r.brut)}/${formatFR(r.maximum)} points → ${formatFR(r.valeur)}/${ev.bareme}${ev.bareme!==20 ? ` · ${formatFR(r.sur20)}/20` : ''} · ${r.evalues}/${r.total} critères évalués`;
   }
   function ligne(e,cr) {
-    const detail=notes.get(e.id)?.detail || {}, choix=cleChoix(detail[cr.id]);
-    const bloc=el('fieldset',{class:'grille-critere'},el('legend',{},mode==='critere' ? `${e.nom} ${e.prenom}` : `${cr.libelle} · poids ${cr.poids}`));
+    const detail=detailVoulu(e), choix=cleChoix(detail[cr.id]);
+    const bloc=el('fieldset',{class:'grille-critere','data-eleve':e.id,'data-critere':cr.id},el('legend',{},mode==='critere' ? `${e.nom} ${e.prenom}` : `${cr.libelle} · poids ${cr.poids}`));
     if(cr.description)bloc.append(el('p',{},cr.description));
-    const selection=g.niveaux.find(n => n.cle===choix);
-    bloc.append(el('p',{class:'grille-selection'},selection ? `${selection.libelle} · ${formatFR(pointsChoix(g,detail[cr.id])*cr.poids)} points` : 'Non évalué'));
+    bloc.append(el('p',{class:'grille-selection'},texteSelection(detail,cr)));
     const boutons=el('div',{class:'grille-niveaux no-print'});
     g.niveaux.forEach((n,i) => {
-      const ajuste=choix===n.cle && typeof detail[cr.id]==='object';
-      const textePoints=ajuste ? `${formatFR(pointsChoix(g,detail[cr.id])*cr.poids)} / ${formatFR(n.points*cr.poids)} points` : `${formatFR(n.points*cr.poids)} pt`;
-      const b=bouton(`${n.libelle} · ${textePoints}`,() => {
-        const prochain={...detail};if(choix===n.cle)delete prochain[cr.id];else prochain[cr.id]=n.cle;enregistrerChoix(e,prochain);
+      const b=bouton(libelleNiveau(detail,cr,n),() => {
+        const effacer=cleChoix(detailVoulu(e)[cr.id])===n.cle;
+        enregistrerChoix(e,d => {const prochain={...d};if(effacer)delete prochain[cr.id];else prochain[cr.id]=n.cle;return prochain;},{cle:b.dataset.grilleFocus,cr});
       },`btn${choix===n.cle ? ' btn-principal':''}`);
       b.setAttribute('aria-pressed',String(n.cle===choix));
       b.dataset.grilleFocus=JSON.stringify([e.id,cr.id,n.cle]);
+      b.dataset.niveauCle=n.cle;
       b.dataset.niveauCouleur=n.couleur || COULEURS_NIVEAUX[i];
       if(g.pointsAjustables) {
         const ajuster=bouton('Ajuster',() => ouvrirPoints(e,cr,n,ajuster),'btn grille-ajuster');
@@ -179,9 +247,10 @@ async function saisir(c,id) {
     bloc.append(boutons);return bloc;
   }
   function ouvrirPoints(e,cr,n,declencheur) {
-    if(occupe || !c.isConnected)return;
+    if(!c.isConnected)return;
     declencheur.focus({preventScroll:true});
-    const detail=notes.get(e.id)?.detail || {};
+    const cle=declencheur.dataset.grilleFocus;
+    const detail=detailVoulu(e); // une écriture peut être en vol : la valeur actuelle est celle voulue
     const actuel=cleChoix(detail[cr.id])===n.cle ? pointsChoix(g,detail[cr.id]) : n.points;
     const choix=el('div',{class:'grille-points'});
     let selection=null;
@@ -207,7 +276,7 @@ async function saisir(c,id) {
     const fermer=()=>dlg.close();window.addEventListener('hashchange',fermer);
     dlg.addEventListener('close',()=>{
       window.removeEventListener('hashchange',fermer);
-      if(selection!==null && c.isConnected)enregistrerChoix(e,{...detail,[cr.id]:{niveau:n.cle,points:selection}});
+      if(selection!==null && c.isConnected)enregistrerChoix(e,d => ({...d,[cr.id]:{niveau:n.cle,points:selection}}),{cle,cr});
     },{once:true});
   }
   function rendre() {
@@ -215,11 +284,11 @@ async function saisir(c,id) {
     contenu.replaceChildren();groupeEleve.hidden=mode!=='eleve';groupeCritere.hidden=mode!=='critere';
     if(mode==='eleve') {
       const e=eleves[index];
-      contenu.append(el('h2',{},`${e.nom} ${e.prenom}`),el('p',{class:'grille-total',role:'status'},score(e)));
-      const code=el('select',{'aria-label':'Statut de l’élève'},el('option',{value:''},'Évaluer avec la grille'),...['ABS','DISP','NN'].map(x => el('option',{value:x},x)));
+      contenu.append(el('h2',{},`${e.nom} ${e.prenom}`),el('p',{class:'grille-total',role:'status','data-score-eleve':e.id},score(e)));
+      const code=el('select',{'aria-label':'Statut de l’élève','data-statut-eleve':e.id},el('option',{value:''},'Évaluer avec la grille'),...['ABS','DISP','NN'].map(x => el('option',{value:x},x)));
       code.dataset.grilleFocus=JSON.stringify([e.id,'statut']);
       code.value=typeof notes.get(e.id)?.valeur==='string' ? notes.get(e.id).valeur:'';
-      code.addEventListener('change',() => enregistrerChoix(e,notes.get(e.id)?.detail || {},code.value || null));
+      code.addEventListener('change',() => enregistrerChoix(e,d => d,{code:code.value || null,cle:code.dataset.grilleFocus}));
       contenu.append(el('label',{class:'champ no-print'},'Absence / dispense / non noté',code));
       for(const cr of g.criteres)contenu.append(ligne(e,cr));
       const suivant=bouton('Élève suivant',() => {index=(index+1)%eleves.length;selEleve.value=String(index);rendre();});
@@ -228,7 +297,7 @@ async function saisir(c,id) {
       contenu.append(el('div',{class:'rang-btn no-print'},precedent,suivant));
     } else if(mode==='critere') {
       const cr=g.criteres.find(x => x.id===critere);contenu.append(el('h2',{},cr.libelle));
-      for(const e of eleves)contenu.append(ligne(e,cr),el('p',{class:'note-discrete'},score(e)));
+      for(const e of eleves)contenu.append(ligne(e,cr),el('p',{class:'note-discrete','data-score-eleve':e.id},score(e)));
       const suivantCritere=bouton('Critère suivant',() => {critere=g.criteres[(g.criteres.findIndex(x=>x.id===critere)+1)%g.criteres.length].id;selCritere.value=critere;rendre();});
       suivantCritere.dataset.grilleNavigation='critere';
       contenu.append(el('div',{class:'rang-btn no-print'},suivantCritere));

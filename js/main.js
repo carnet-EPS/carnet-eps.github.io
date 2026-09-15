@@ -2,7 +2,7 @@
 // Toutes les vues sont fournies par les modules (js/modules/*.js).
 
 import { enregistrerVue, afficherVue, carte, el, toast, ligneAlerte } from './ui.js';
-import { etat, abonner, estLocalhost } from './state.js';
+import { etat, abonner, estLocalhost, MODE_ESSAI } from './state.js';
 import { ouvrirDB } from './io.js';
 import { collecterAlertes } from './metier.js';
 import { initialiser as initAccueil } from './modules/accueil.js';
@@ -163,6 +163,27 @@ async function naviguer() {
 }
 
 window.addEventListener('hashchange', naviguer);
+
+// ---- Version d'essai (FON-01) ----
+// Pendant la période à deux adresses, deux applications visuellement identiques circulent : une saisie
+// réelle faite ici, ou fictive en production, crée deux carnets qui ne se réconcilient pas. Le marqueur
+// vit dans l'en-tête collant (visible au défilement, absent à l'impression avec lui) et dans le titre.
+// Le texte ne dit pas où sont les vraies données : il doit rester vrai jusqu'au passage du drapeau à false,
+// qui précède le premier import réel (revue v0.13.1).
+if (MODE_ESSAI) {
+  document.title = 'ESSAI — Carnet EPS';
+  document.querySelector('.entete')?.append(el('div', { class: 'essai', role: 'region', 'aria-label': 'Version d’essai' },
+    el('strong', {}, 'Version d’essai'), ' — n’y saisissez que des données fictives.'));
+}
+
+// Marge de focus sous l'en-tête collant (B05) : sa hauteur réelle varie (bandeau, police agrandie, largeur).
+// Sans cette mesure, un contrôle atteint au clavier pouvait finir caché sous un en-tête plus haut que prévu.
+const entete = document.querySelector('.entete');
+if (entete && 'ResizeObserver' in window) {
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--h-entete', `${Math.ceil(entete.getBoundingClientRect().height)}px`);
+  }).observe(entete);
+}
 
 // Lien d'évitement (B36) : le focus va sur la navigation SANS passer par le hash — un hash
 // « #nav-principale » serait pris pour une route et renverrait à l'accueil (revue du lot 3).

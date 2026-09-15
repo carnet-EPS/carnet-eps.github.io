@@ -87,6 +87,14 @@
   transform: scale(0.98);
 }
 
+/* Un contrôle inactif doit se voir : `.btn` fixe fond et couleur, ce qui effaçait le gris du navigateur —
+   les boutons désactivés par le code restaient visuellement normaux (audit indépendant 2026-09-16). */
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* ---- Listes (écran « Plus ») ---- */
 .liste-cartes {
   display: flex;
@@ -1039,3 +1047,19 @@ dialog.visionneuse::backdrop {
 .grille-navigation .champ { flex: 1 1 200px; min-width: 0; }
 .grille-navigation .rang-btn { flex: 1 1 100%; }
 @media print { .grille-critere { break-inside: avoid; } .grille-selection { display: block; } }
+
+/* Case ou statut dont l'écriture est en cours (saisie par grille) : signalé, jamais verrouillé (FON-05).
+   EN FIN DE FEUILLE et plus spécifique : le contour pointillé doit l'emporter sur le contour plein d'une case
+   sélectionnée et sur l'anneau de focus clavier des cases (revue v0.13.1). Sur une case sans contour (ni
+   sélectionnée ni focalisée), le contour pointillé reçoit aussi une épaisseur. */
+.grille-niveaux .btn[aria-busy="true"],
+.grille-niveaux .btn[aria-busy="true"]:focus-visible,
+#vue select[aria-busy="true"] {
+  outline-style: dashed;
+}
+.grille-niveaux .btn[aria-busy="true"]:not([aria-pressed="true"]):not(:focus-visible),
+#vue select[aria-busy="true"]:not(:focus-visible) {
+  outline-width: 2px;
+  outline-color: currentColor;
+  outline-offset: 2px;
+}

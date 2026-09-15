@@ -133,6 +133,22 @@ body {
   text-transform: capitalize;
 }
 
+/* Marqueur de version d'essai (FON-01) : une ligne ambre sur l'en-tête bleu, identique dans les deux
+   thèmes (l'en-tête ne change pas de couleur), disparaît à l'impression avec lui. UNE ligne au plus, même
+   texte agrandi : sur 320 px à 200 %, le bandeau sur plusieurs lignes doublait l'en-tête collant (revue v0.13.1). */
+.essai {
+  margin: 6px 0 0;
+  padding: 4px 10px;
+  border-radius: var(--r-carte);
+  background: #ffd166;
+  color: #1c1c1c;
+  font-size: 0.85rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---- Zone de contenu ---- */
 .vue {
   padding: 16px;
@@ -217,7 +233,9 @@ input,
 select,
 textarea,
 [tabindex] {
-  scroll-margin-top: calc(4.75rem + env(safe-area-inset-top)); /* en rem : l'en-tête grandit avec la police (B30) */
+  /* en rem : l'en-tête grandit avec la police (B30). --h-entete (mesurée par main.js) prend le relais quand
+     l'en-tête est plus haut que prévu, par exemple avec le bandeau de version d'essai (revue v0.13.1). */
+  scroll-margin-top: max(calc(4.75rem + env(safe-area-inset-top)), calc(var(--h-entete, 0px) + 0.5rem));
   scroll-margin-bottom: calc(var(--h-nav) + 16px);
 }
 
