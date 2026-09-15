@@ -5,7 +5,7 @@
    ⚠ Incrémenter VERSION à chaque déploiement (synchroniser avec VERSION_APP de state.js).
    Non enregistré sur localhost (voir main.js, décision D008). */
 
-const VERSION = '0.12.20';
+const VERSION = '0.13.0';
 const CACHE = `carnet-eps-${VERSION}`;
 const ASSETS = [
   './',
@@ -19,6 +19,8 @@ const ASSETS = [
   './js/ui.js',
   './js/io.js',
   './js/metier.js',
+  './js/grilles-calcul.js',
+  './js/modules/grilles.js',
   './js/media.js',
   './js/modules/sauvegarde.js',
   './js/modules/reglages.js',
@@ -140,3 +142,4 @@ self.addEventListener('fetch', (e) => {
     );
   }
 });
+

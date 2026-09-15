@@ -2,14 +2,17 @@
 // + sauvegarde/restauration JSON + utilitaires CSV (import Pronote) + cascades.
 // Schéma et règles d'intégrité : docs/modele-donnees.md.
 
+import { validerGrille, calculerGrille } from './grilles-calcul.js';
+
 const DB_NOM = 'carnet-eps';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 // store -> keyPath + index. Migration additive uniquement (D009) : `onupgradeneeded` crée les stores
 // manquants et les index manquants d'un store existant, jamais de suppression ni de transformation.
 // Une migration non additive imposerait un `switch (e.oldVersion)` et un export JSON préalable
 // (BIBLE) — voir docs/modele-donnees.md.
 const SCHEMA = {
+  grilles: { keyPath: 'id' },
   meta: { keyPath: 'cle' },
   classes: { keyPath: 'id' },
   eleves: { keyPath: 'id', index: ['classeId'] },
@@ -31,6 +34,7 @@ export const STORES = Object.keys(SCHEMA);
 // Champs texte indispensables au rendu (tris, affichages) : un import qui les fournit dans un autre
 // type (nom: 123) faisait planter les vues au premier tri (audit 2026-09-07, V2-05).
 const CHAMPS_TEXTE = {
+  grilles: ['titre'],
   classes: ['nom'],
   eleves: ['nom', 'prenom', 'classeId'],
   edt: ['classeId', 'heureDebut', 'heureFin'],
@@ -153,7 +157,7 @@ export async function enregistrer(store, objet) {
 // anciennes laissées intactes — un historique antérieur aux gardes actuelles (barème à 0, note
 // au-dessus du barème) ne doit pas rendre une évaluation impossible à modifier.
 const CODES_NOTE = ['ABS', 'DISP', 'NN'];
-const baremeEvaluation = (ev) => (ev.type === 'note20' ? 20 : ev.type === 'bareme' ? Number(ev.bareme) || 20 : null);
+const baremeEvaluation = (ev) => (ev.type === 'note20' ? 20 : ['bareme', 'grille'].includes(ev.type) ? Number(ev.bareme) || 20 : null);
 // Comparaison indépendante de l'ordre des clés : une note relue d'une sauvegarde peut ranger ses
 // champs autrement que la vue qui l'a écrite, sans être différente pour autant.
 const canonique = (v) => (v && typeof v === 'object'
@@ -176,6 +180,21 @@ function validerNoteEcrite(note, ev) {
     }
   } else if (!CODES_NOTE.includes(note.valeur)) {
     throw new Error('code de note inconnu');
+  }
+  validerDetailGrille(note, ev);
+}
+
+// Détail de critères : il n'existe que sur une évaluation par grille, et la note chiffrée doit être
+// EXACTEMENT celle que les critères calculent avec la grille figée de l'évaluation (copie de Codex).
+// Donnée neuve, produite par la v0.13 : contrôlée strictement, contrairement aux notes anciennes.
+function validerDetailGrille(note, ev) {
+  if (ev.type !== 'grille') {
+    if (note.detail != null) throw new Error('détail de grille sur une évaluation qui n’est pas une grille');
+    return;
+  }
+  const calcul = calculerGrille(ev.grille, note.detail || {}, baremeEvaluation(ev));
+  if (typeof note.valeur === 'number' && note.valeur !== calcul.valeur) {
+    throw new Error('note de grille incohérente avec les critères : rechargez la page');
   }
 }
 
@@ -374,6 +393,8 @@ export function validerExport(objet) {
         throw new Error(`sauvegarde altérée : « ${nom} » identifiant en double « ${enreg[cle]} » (ligne ${i + 1})`);
       }
       vus.add(enreg[cle]);
+      if (nom === 'grilles') validerGrille(enreg);
+      if (nom === 'evaluations' && enreg.type === 'grille') { validerGrille(enreg.grille); calculerGrille(enreg.grille, {}, enreg.bareme); }
       for (const champ of CHAMPS_TEXTE[nom] || []) {
         if (typeof enreg[champ] !== 'string') {
           throw new Error(`sauvegarde altérée : « ${nom} » ligne ${i + 1} — « ${champ} » doit être un texte`);
@@ -382,6 +403,21 @@ export function validerExport(objet) {
     });
     comptes[nom] = liste.length;
   }
+  // Seules les notes d'une évaluation PAR GRILLE sont contrôlées : un détail incohérent ferait planter
+  // l'écran de saisie. Les notes des autres évaluations restent acceptées telles quelles, comme en
+  // v0.12 : une sauvegarde qui porte un barème à 0, une note au-dessus du barème ou la note d'un élève
+  // supprimé, héritées d'avant les gardes actuelles, doit rester RESTAURABLE. La copie de travail de
+  // Codex la refusait en bloc ; le jour où un téléphone casse, c'est pourtant elle qui compte.
+  const evaluationsParId = new Map((objet.stores.evaluations || []).map((ev) => [ev.id, ev]));
+  (objet.stores.notes || []).forEach((note, i) => {
+    const ev = evaluationsParId.get(note.evaluationId);
+    if (ev?.type !== 'grille') return;
+    try {
+      validerDetailGrille(note, ev);
+    } catch (e) {
+      throw new Error(`sauvegarde altérée : « notes » ligne ${i + 1} — ${e?.message || e}`);
+    }
+  });
   return { date: (objet.dateExport || '').slice(0, 10) || 'date inconnue', comptes, absents };
 }
 
@@ -713,6 +749,7 @@ export async function apercuSuppressionSequence(sequenceId) {
 // et le résumé de l'écran Sauvegarde (C38) : tout store de données doit y figurer, sinon il disparaît
 // du résumé affiché avant un import qui REMPLACE tout.
 export const LIBELLES = {
+  grilles: ['grille', 'grilles'],
   classes: ['classe', 'classes'],
   eleves: ['élève', 'élèves'],
   edt: ['créneau EDT', 'créneaux EDT'],

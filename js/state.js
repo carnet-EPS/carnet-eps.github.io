@@ -2,7 +2,7 @@
 // jamais de données élèves ici — elles vivent dans IndexedDB via io.js).
 
 // Version applicative : synchroniser avec VERSION du service-worker à chaque déploiement.
-export const VERSION_APP = '0.12.20';
+export const VERSION_APP = '0.13.0';
 
 const CLE_PREFS = 'carnet-eps:prefs';
 

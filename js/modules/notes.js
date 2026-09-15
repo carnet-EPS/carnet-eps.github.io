@@ -15,6 +15,7 @@ const texteBadgePubliee = (ev) => (ev.publieePronote
 import { enregistrerVue, el, carte, champ, champTexte, confirmer, toast } from '../ui.js';
 import { tous, lire, lireMeta, parIndex, enregistrer, supprimerLot, restaurer, telechargerTexte, champCSV, mettreAJourEvaluation } from '../io.js';
 import { isoAujourdhui, dateFR, trierEleves, trierClasses, baremeDe, formatFR, inaptitudesActives } from '../metier.js';
+import { validerGrille } from '../grilles-calcul.js';
 import { sauverPrefs } from '../state.js';
 
 const CODES = ['ABS', 'DISP', 'NN'];
@@ -42,6 +43,10 @@ function afficherValeur(v, bareme) {
 // ---------------------------------------------------------------------------
 
 async function vueListe(c) {
+  const actions = el('div', { class: 'barre-actions no-print' },
+    el('a', { class: 'btn', href: '#/grilles' }, 'Gérer les grilles d’évaluation'));
+  c.append(actions);
+  const grilles = (await tous('grilles')).filter(g => !g.archivee);
   const [classes, sequences, evaluations, notes, eleves] = await Promise.all([
     tous('classes'), tous('sequences'), tous('evaluations'), tous('notes'), tous('eleves'),
   ]);
@@ -55,7 +60,7 @@ async function vueListe(c) {
 
   // --- Création ---
   const btnNouvelle = el('button', { class: 'btn btn-principal', 'aria-expanded': 'false' }, '+ Nouvelle évaluation');
-  c.append(el('div', { class: 'barre-actions' }, btnNouvelle));
+  actions.append(btnNouvelle);
 
   const seqTriees = [...sequences].sort((a, b) => String(b.dateDebut || '').localeCompare(String(a.dateDebut || '')));
   const selSeq = el('select', { id: 'ev-seq' }, ...seqTriees.map((s) =>
@@ -64,13 +69,17 @@ async function vueListe(c) {
   const inpDate = el('input', { type: 'date', id: 'ev-date' });
   inpDate.value = isoAujourdhui();
   const selType = el('select', { id: 'ev-type' },
+    el('option', { value: 'grille' }, 'Grille d’évaluation EPS'),
     el('option', { value: 'note20' }, 'Note sur 20'),
     el('option', { value: 'bareme' }, 'Barème personnalisé'),
     el('option', { value: 'afl' }, 'AFL / positionnement (texte, non exporté vers Pronote)'));
+  selType.value = 'note20';
+  const selGrille = el('select',{id:'ev-grille'},el('option',{value:''},'Choisir une grille'),...grilles.map(g => el('option',{value:g.id},g.titre)));
+  const blocGrille = champ('ev-grille','Grille à utiliser',selGrille); blocGrille.hidden=true;
   const inpBareme = el('input', { type: 'number', id: 'ev-bareme', min: '1', max: '200', value: '10' });
   const blocBareme = el('div', { class: 'champ' }, el('label', { for: 'ev-bareme' }, 'Barème ( /x )'), inpBareme);
   blocBareme.hidden = true;
-  selType.addEventListener('change', () => { blocBareme.hidden = selType.value !== 'bareme'; });
+  selType.addEventListener('change', () => { blocBareme.hidden = !['bareme','grille'].includes(selType.value); blocGrille.hidden=selType.value!=='grille'; if(selType.value==='grille')inpBareme.value='20'; });
   const inpCoef = el('input', { type: 'number', id: 'ev-coef', min: '0', max: '10', step: '0.5', value: '1' });
   const statutForm = el('p', { class: 'statut', role: 'status' });
   const btnCreer = el('button', { class: 'btn btn-principal' }, 'Créer et saisir les notes');
@@ -80,7 +89,7 @@ async function vueListe(c) {
     champ('ev-titre', 'Titre *', inpTitre),
     el('div', { class: 'rang-2' }, champ('ev-date', 'Date', inpDate), champ('ev-coef', 'Coefficient', inpCoef)),
     champ('ev-type', 'Type', selType),
-    blocBareme,
+    blocBareme, blocGrille,
     el('div', { class: 'rang-btn' }, btnCreer),
     statutForm,
   );
@@ -97,18 +106,21 @@ async function vueListe(c) {
       statutForm.textContent = 'Le coefficient doit être un nombre ≥ 0.'; statutForm.className = 'statut statut-erreur'; return;
     }
     // Barème personnalisé : entre 1 et 200 — « 0 » ou « -10 » passaient (min/max HTML non bloquants).
-    const bareme = selType.value === 'bareme' ? Number(inpBareme.value) : null;
-    if (selType.value === 'bareme' && !(Number.isFinite(bareme) && bareme >= 1 && bareme <= 200)) {
+    const bareme = ['bareme','grille'].includes(selType.value) ? Number(inpBareme.value) : null;
+    if (['bareme','grille'].includes(selType.value) && !(Number.isFinite(bareme) && bareme >= 1 && bareme <= 200)) {
       statutForm.textContent = 'Le barème doit être compris entre 1 et 200.'; statutForm.className = 'statut statut-erreur'; return;
     }
     btnCreer.disabled = true; // anti double-clic (audit 2026-09-07, D-02)
     try {
+      const modele = selType.value==='grille' ? grilles.find(g => g.id===selGrille.value) : null;
+      if(selType.value==='grille') { if(!modele)throw new Error('Choisissez une grille dans la liste ; créez-en une dans Gérer les grilles si nécessaire.'); validerGrille(modele); }
       const id = crypto.randomUUID();
       await enregistrer('evaluations', {
         id, sequenceId: selSeq.value, titre, date: inpDate.value || isoAujourdhui(),
         type: selType.value, bareme, coef: coefSaisi, publieePronote: null,
+        ...(modele ? {grilleId:modele.id,grille:structuredClone(modele)} : {}),
       });
-      location.hash = `#/notes/eval/${id}`;
+      location.hash = modele ? `#/grilles/saisie/${id}` : `#/notes/eval/${id}`;
     } catch (e) {
       statutForm.textContent = `Création impossible : ${e?.message || e}`; statutForm.className = 'statut statut-erreur';
     } finally {
@@ -301,8 +313,16 @@ async function vueEval(c, evalId) {
     statsEl.replaceChildren(...enfants);
   }
 
+  if (ev.type === 'grille') {
+    const carteModele = carte(ev.grille.titre, `Grille figée · barème /${bareme}. Les notes se calculent depuis les critères.`);
+    carteModele.append(el('div', { class: 'rang-btn no-print' },
+      el('a', { class: 'btn btn-principal', href: `#/grilles/saisie/${evalId}` }, 'Saisir les critères / voir le détail')));
+    c.append(carteModele);
+  }
+
   // --- Grille ---
-  const carteGrille = carte('Saisie', bareme
+  const carteGrille = carte(ev.type==='grille' ? 'Notes calculées' : 'Saisie', ev.type==='grille'
+    ? 'Ces notes sont calculées depuis les critères. Utilisez « Saisir les critères / voir le détail » pour les modifier.' : bareme
     ? `Note (virgule acceptée) ou code : ABS, DISP, NN. Entrée = élève suivant. Vide = non saisi.`
     : 'Positionnement libre (ex. AFL1 D3). Non exportable vers Pronote.');
   // Motif d'un refus, annoncé (role=alert) : la couleur seule ne disait rien (B22). Le message est
@@ -316,6 +336,7 @@ async function vueEval(c, evalId) {
       class: 'input-note', type: 'text', inputmode: bareme ? 'decimal' : 'text',
       'aria-label': `Note de ${eleve.nom} ${eleve.prenom}`, autocomplete: 'off', placeholder: '—', // même ordre que le libellé visible (commande vocale — B48)
     });
+    if(ev.type==='grille') { input.readOnly=true; input.title='Note calculée depuis les critères'; }
     input.value = note ? (typeof note.valeur === 'number' ? formatFR(note.valeur) : note.valeur) : '';
     if (note && typeof note.valeur !== 'number') input.classList.add('code');
     input.addEventListener('keydown', (e) => {
@@ -358,6 +379,8 @@ async function vueEval(c, evalId) {
       majStats();
     };
     input.addEventListener('change', async () => {
+      // Évaluation par grille : la note se CALCULE depuis les critères, elle ne se saisit pas ici.
+      if (ev.type === 'grille') return;
       revisionNotes++;
       retirerZoneSecours();
       erreursNotes.add(eleve.id); // levée seulement quand la note est bel et bien enregistrée

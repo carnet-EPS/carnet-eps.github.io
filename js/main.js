@@ -13,16 +13,17 @@ import { initialiser as initEdt } from './modules/edt.js';
 import { initialiser as initSequences } from './modules/sequences.js';
 import { initialiser as initAppel } from './modules/appel.js';
 import { initialiser as initInaptitudes } from './modules/inaptitudes.js';
+import { initialiser as initGrilles } from './modules/grilles.js';
 import { initialiser as initNotes } from './modules/notes.js';
 import { initialiser as initDocuments } from './modules/documents.js';
 
 // Nom accessible de la zone de contenu par route → annoncé au lecteur d'écran à chaque navigation
 // (la zone #vue reçoit le focus dans afficherVue). Routes principales (onglets) + routes enfants
 // (accessibles depuis « Plus ») : UNE seule liste, dérivée des titres (audit 2026-09-07, C42).
-const TITRES = { accueil: 'Aujourd’hui', appel: 'Appel', eleves: 'Élèves', notes: 'Notes', edt: 'Emploi du temps', plus: 'Plus', suivi: 'Suivi', sauvegarde: 'Sauvegarde', reglages: 'Réglages', sequences: 'Séquences', inaptitudes: 'Inaptitudes', documents: 'Documents', aide: 'Aide' };
+const TITRES = { grilles: 'Grilles d’évaluation', accueil: 'Aujourd’hui', appel: 'Appel', eleves: 'Élèves', notes: 'Notes', edt: 'Emploi du temps', plus: 'Plus', suivi: 'Suivi', sauvegarde: 'Sauvegarde', reglages: 'Réglages', sequences: 'Séquences', inaptitudes: 'Inaptitudes', documents: 'Documents', aide: 'Aide' };
 const ROUTES = Object.keys(TITRES);
 // EDT déplacé sous « Plus » ; les inaptitudes sont désormais frontées par l'onglet « Suivi ».
-const PARENT = { sauvegarde: 'plus', reglages: 'plus', sequences: 'plus', inaptitudes: 'suivi', documents: 'plus', aide: 'plus', edt: 'plus' };
+const PARENT = { grilles: 'notes', sauvegarde: 'plus', reglages: 'plus', sequences: 'plus', inaptitudes: 'suivi', documents: 'plus', aide: 'plus', edt: 'plus' };
 
 // ---- Vue « Plus » (menu des modules secondaires) ----
 
@@ -30,6 +31,7 @@ enregistrerVue('plus', (c) => {
   const lien = (route, carteElem) => el('a', { class: 'carte-lien', href: `#/${route}` }, carteElem);
   const liste = el('div', { class: 'liste-cartes' });
   liste.append(
+    lien('grilles', carte('Grilles d’évaluation', 'Critères, niveaux de maîtrise, pondérations et notes sur 20.')),
     lien('edt', carte('Emploi du temps', 'Créneaux hebdomadaires, semaines A/B, installations.')),
     lien('sequences', carte('Séquences & séances', 'APSA, champs d’apprentissage, séances numérotées automatiquement.')),
     lien('documents', carte('Documents', 'Bibliothèque locale : fiches, protocoles, convocations — photo, PDF ou lien.')),
@@ -137,6 +139,7 @@ initSequences();
 initAppel();
 initInaptitudes();
 initNotes();
+initGrilles();
 initDocuments();
 
 // ---- Router (hash) — segments : #/eleves/fiche/<id> → route 'eleves', params ['fiche','<id>'] ----

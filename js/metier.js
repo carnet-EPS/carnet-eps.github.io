@@ -53,7 +53,7 @@ export const trierClasses = (a, b) => a.nom.localeCompare(b.nom, 'fr', { numeric
 export const normaliser = (s = '') => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 export const cleTexte = (s = '') => normaliser(s).replace(/[^a-z0-9]/g, '');
 // Barème effectif d'une évaluation (null = AFL / positionnement, hors moyenne).
-export const baremeDe = (ev) => (ev.type === 'note20' ? 20 : ev.type === 'bareme' ? Number(ev.bareme) || 20 : null);
+export const baremeDe = (ev) => (ev.type === 'note20' ? 20 : ['bareme','grille'].includes(ev.type) ? Number(ev.bareme) || 20 : null);
 // Nombre arrondi à 2 décimales, virgule française.
 export const formatFR = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
 
