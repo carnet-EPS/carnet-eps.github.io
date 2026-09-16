@@ -463,8 +463,9 @@ async function vueFiche(c, id) {
     for (const [cle, conf] of Object.entries(STATUTS)) {
       if (!cnt[cle]) continue;
       const chip = el('span', { class: 'badge' }, `${conf.libelle} ×${cnt[cle]}`);
-      chip.style.background = `var(--stb-${cle})`; // token décliné par thème, pas la couleur brute (B18)
-      chip.style.color = 'var(--c-sur-accent)';
+      // Même pastille que l'écran d'appel : fond et texte propres au statut s'ils existent (retard en jaune vif).
+      chip.style.background = `var(--stbf-${cle}, var(--stb-${cle}))`; // token décliné par thème, pas la couleur brute (B18)
+      chip.style.color = `var(--stbt-${cle}, var(--c-sur-accent))`;
       chips.append(chip);
       nbChips++;
     }
@@ -503,8 +504,9 @@ async function vueFiche(c, id) {
     for (const { a, s } of derniers) {
       const conf = STATUTS[a.statut] || STATUTS.present;
       const b = el('span', { class: 'badge', title: conf.libelle }, conf.court);
-      b.style.background = `var(--stb-${a.statut in STATUTS ? a.statut : 'present'})`; // token thématisé (B18)
-      b.style.color = 'var(--c-sur-accent)';
+      const cleS = a.statut in STATUTS ? a.statut : 'present';
+      b.style.background = `var(--stbf-${cleS}, var(--stb-${cleS}))`; // token thématisé (B18), même pastille que l'appel
+      b.style.color = `var(--stbt-${cleS}, var(--c-sur-accent))`;
       const seq = seqT.find((q) => q.id === s.sequenceId);
       listeH.append(el('div', { class: 'ligne-eleve' }, b,
         el('span', { class: 'ligne-eleve-nom' },

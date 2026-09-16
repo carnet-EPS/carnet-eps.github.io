@@ -15,14 +15,32 @@
   --c-texte-badge: #465672; /* texte des badges gris sur --c-bordure : 5,7:1 (B08) */
   color-scheme: light; /* contrôles natifs (select, date, cases) assortis au thème */
   /* Bordures et pastilles d'appel par statut : SEULE palette des statuts (les clés suivent STATUTS
-     de metier.js, qui ne porte plus de couleur — C48), déclinée par thème clair ET sombre — audit UX P2. */
+     de metier.js, qui ne porte plus de couleur — C48), déclinée par thème clair ET sombre — audit UX P2.
+     ⚠ Les statuts doivent rester DISTINGUABLES d'un coup d'œil : absent, retard et oubli de tenue étaient
+     trois teintes chaudes voisines (écart perceptuel ΔE2000 de 15 à 16 — retour de terrain du 2026-09-16).
+     Retard passe au jaune, l'oubli de tenue au magenta, la dispense à l'indigo : au minimum 34 entre ces
+     statuts, 18 sur toute la palette. Une garde de tests refuse toute paire trop proche. */
   --stb-present: #0f7a46;
-  --stb-absent: #d03a3a;
-  --stb-retard: #a35f00;
-  --stb-dispense: #7c3aed;
+  --stb-absent: #c62828;
+  --stb-retard: #8a6d00;
+  --stb-dispense: #4f46e5;
   --stb-inapte: #0e7490;
-  --stb-oubli_tenue: #be185d;
-  --stb-infirmerie: #5b6b85;
+  --stb-oubli_tenue: #86198f;
+  --stb-infirmerie: #57534e;
+  /* Retard : la pastille passe en jaune VIF à texte foncé (la bordure reste ambre sombre, pour garder
+     3:1 sur la carte). Un jaune sombre assez foncé pour du texte blanc frôlait le vert du « présent ». */
+  --stbf-retard: #f2b705;
+  --stbt-retard: #1c1c1c;
+  /* Couleurs proposées pour les niveaux d'une grille : palette PROPRE. Les noms sont montrés à
+     l'enseignant dans l'éditeur, ils doivent dire la vérité même quand la palette des statuts change. */
+  --niv-rouge: #d03a3a;
+  --niv-orange: #a35f00;
+  --niv-bleu: #1d5fd6;
+  --niv-vert: #0f7a46;
+  --niv-violet: #7c3aed;
+  --niv-rose: #be185d;
+  --niv-turquoise: #0e7490;
+  --niv-gris: #5b6b85;
   --r-carte: 14px;
   --ombre: 0 1px 3px rgba(22, 36, 61, 0.1);
   --tactile: 44px; /* taille minimale des cibles tactiles (terrain) */
@@ -47,12 +65,20 @@
     --c-alerte: #f06363; /* le rouge clair ne passait qu'à 3,3:1 sur fond sombre (B07) */
     --c-texte-badge: #97a4bd;
     --stb-present: #34c27a;
-    --stb-absent: #f06363;
-    --stb-retard: #e0902a;
-    --stb-dispense: #a78bfa;
+    --stb-absent: #ef4444;
+    --stb-retard: #eab308;
+    --stb-dispense: #818cf8;
     --stb-inapte: #3bb6d4;
-    --stb-oubli_tenue: #ee5a92;
-    --stb-infirmerie: #94a3bd;
+    --stb-oubli_tenue: #d946ef;
+    --stb-infirmerie: #a8a29e;
+    --niv-rouge: #f06363;
+    --niv-orange: #e0902a;
+    --niv-bleu: #6493f2;
+    --niv-vert: #34c27a;
+    --niv-violet: #a78bfa;
+    --niv-rose: #ee5a92;
+    --niv-turquoise: #3bb6d4;
+    --niv-gris: #94a3bd;
     --ombre: 0 1px 3px rgba(0, 0, 0, 0.35);
     color-scheme: dark;
   }
@@ -72,12 +98,20 @@
   --c-alerte: #f06363;
   --c-texte-badge: #97a4bd;
   --stb-present: #34c27a;
-  --stb-absent: #f06363;
-  --stb-retard: #e0902a;
-  --stb-dispense: #a78bfa;
+  --stb-absent: #ef4444;
+  --stb-retard: #eab308;
+  --stb-dispense: #818cf8;
   --stb-inapte: #3bb6d4;
-  --stb-oubli_tenue: #ee5a92;
-  --stb-infirmerie: #94a3bd;
+  --stb-oubli_tenue: #d946ef;
+  --stb-infirmerie: #a8a29e;
+  --niv-rouge: #f06363;
+  --niv-orange: #e0902a;
+  --niv-bleu: #6493f2;
+  --niv-vert: #34c27a;
+  --niv-violet: #a78bfa;
+  --niv-rose: #ee5a92;
+  --niv-turquoise: #3bb6d4;
+  --niv-gris: #94a3bd;
   --ombre: 0 1px 3px rgba(0, 0, 0, 0.35);
   color-scheme: dark;
 }

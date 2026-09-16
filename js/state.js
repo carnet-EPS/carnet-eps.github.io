@@ -2,7 +2,7 @@
 // jamais de données élèves ici — elles vivent dans IndexedDB via io.js).
 
 // Version applicative : synchroniser avec VERSION du service-worker à chaque déploiement.
-export const VERSION_APP = '0.13.1';
+export const VERSION_APP = '0.13.2';
 
 // Période à deux adresses (audit indépendant 2026-09-16, FON-01) : la v0.13 tourne sur l'origine dédiée
 // avec des données FICTIVES pendant que les vraies restent sur l'ancienne adresse. Tant que ce drapeau

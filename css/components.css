@@ -669,13 +669,15 @@ fieldset.groupe legend {
 }
 
 
+/* La LETTRE (P, A, R, T…) est le repère qui ne dépend pas de la couleur : elle doit se lire au pouce,
+   à bout de bras, dans un gymnase (retour de terrain du 2026-09-16). */
 .btn-eleve .badge-statut {
   display: inline-block;
-  min-width: 20px;
+  min-width: 22px;
   padding: 1px 6px;
   border-radius: 999px;
   color: var(--c-sur-accent); /* blanc en clair, encre en sombre → lisible sur les 2 fonds */
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   font-weight: 700;
   text-align: center;
 }
@@ -703,13 +705,13 @@ fieldset.groupe legend {
 
 /* Pastille de statut : même couleur thématisée que la bordure (saturée en clair,
    claire en sombre) → elle ressort sur la carte dans les deux thèmes. */
-.btn-eleve[data-statut="present"] .badge-statut { background: var(--stb-present); }
-.btn-eleve[data-statut="absent"] .badge-statut { background: var(--stb-absent); }
-.btn-eleve[data-statut="retard"] .badge-statut { background: var(--stb-retard); }
-.btn-eleve[data-statut="dispense"] .badge-statut { background: var(--stb-dispense); }
-.btn-eleve[data-statut="inapte"] .badge-statut { background: var(--stb-inapte); }
-.btn-eleve[data-statut="oubli_tenue"] .badge-statut { background: var(--stb-oubli_tenue); }
-.btn-eleve[data-statut="infirmerie"] .badge-statut { background: var(--stb-infirmerie); }
+.btn-eleve[data-statut="present"] .badge-statut { background: var(--stbf-present, var(--stb-present)); color: var(--stbt-present, var(--c-sur-accent)); }
+.btn-eleve[data-statut="absent"] .badge-statut { background: var(--stbf-absent, var(--stb-absent)); color: var(--stbt-absent, var(--c-sur-accent)); }
+.btn-eleve[data-statut="retard"] .badge-statut { background: var(--stbf-retard, var(--stb-retard)); color: var(--stbt-retard, var(--c-sur-accent)); }
+.btn-eleve[data-statut="dispense"] .badge-statut { background: var(--stbf-dispense, var(--stb-dispense)); color: var(--stbt-dispense, var(--c-sur-accent)); }
+.btn-eleve[data-statut="inapte"] .badge-statut { background: var(--stbf-inapte, var(--stb-inapte)); color: var(--stbt-inapte, var(--c-sur-accent)); }
+.btn-eleve[data-statut="oubli_tenue"] .badge-statut { background: var(--stbf-oubli_tenue, var(--stb-oubli_tenue)); color: var(--stbt-oubli_tenue, var(--c-sur-accent)); }
+.btn-eleve[data-statut="infirmerie"] .badge-statut { background: var(--stbf-infirmerie, var(--stb-infirmerie)); color: var(--stbt-infirmerie, var(--c-sur-accent)); }
 
 /* ---- Feuille (menu de statuts, <dialog> natif) ---- */
 
@@ -1025,14 +1027,14 @@ dialog.visionneuse::backdrop {
 .grille-case { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .grille-case > .btn:first-child { flex: 1; touch-action: pan-y; user-select: none; -webkit-touch-callout: none; }
 .grille-case .grille-ajuster { min-height: 44px; font-size: .9rem; }
-[data-niveau-couleur="rouge"] { --niveau-couleur: var(--stb-absent); }
-[data-niveau-couleur="orange"] { --niveau-couleur: var(--stb-retard); }
-[data-niveau-couleur="bleu"] { --niveau-couleur: var(--c-accent); }
-[data-niveau-couleur="vert"] { --niveau-couleur: var(--stb-present); }
-[data-niveau-couleur="violet"] { --niveau-couleur: var(--stb-dispense); }
-[data-niveau-couleur="rose"] { --niveau-couleur: var(--stb-oubli_tenue); }
-[data-niveau-couleur="turquoise"] { --niveau-couleur: var(--stb-inapte); }
-[data-niveau-couleur="gris"] { --niveau-couleur: var(--stb-infirmerie); }
+[data-niveau-couleur="rouge"] { --niveau-couleur: var(--niv-rouge); }
+[data-niveau-couleur="orange"] { --niveau-couleur: var(--niv-orange); }
+[data-niveau-couleur="bleu"] { --niveau-couleur: var(--niv-bleu); }
+[data-niveau-couleur="vert"] { --niveau-couleur: var(--niv-vert); }
+[data-niveau-couleur="violet"] { --niveau-couleur: var(--niv-violet); }
+[data-niveau-couleur="rose"] { --niveau-couleur: var(--niv-rose); }
+[data-niveau-couleur="turquoise"] { --niveau-couleur: var(--niv-turquoise); }
+[data-niveau-couleur="gris"] { --niveau-couleur: var(--niv-gris); }
 .grille-niveaux [data-niveau-couleur] { border-color: var(--niveau-couleur); }
 .grille-niveaux [data-niveau-couleur][aria-pressed="true"] { background: var(--niveau-couleur); color: var(--c-surface); outline-color: var(--niveau-couleur); }
 .grille-niveaux [data-niveau-couleur]:focus-visible { outline: 3px solid var(--c-texte); outline-offset: 5px; }

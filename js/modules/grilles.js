@@ -12,7 +12,9 @@ const erreur = e => toast(`Non enregistré : ${e?.message || e}`);
 async function liste(c) {
   c.append(retour('#/plus'),el('p',{},'Préparez une grille, puis utilisez-la dans Notes → Nouvelle évaluation. Chaque évaluation conserve sa propre copie.'));
   const ajouter = bouton('Nouvelle grille',() => { location.hash = '#/grilles/nouvelle'; },'btn btn-principal');
-  c.append(el('div',{class:'rang-btn no-print'},ajouter,el('a',{class:'btn',href:'#/notes'},'Créer une évaluation')));
+  // `barre-actions` (et non `rang-btn`) : même respiration sous les boutons que les autres écrans —
+  // la première carte était collée à « Nouvelle grille » (retour de terrain du 2026-09-16).
+  c.append(el('div',{class:'barre-actions no-print'},ajouter,el('a',{class:'btn',href:'#/notes'},'Créer une évaluation')));
   const grilles = (await tous('grilles')).sort((a,b) => Number(a.archivee)-Number(b.archivee) || a.titre.localeCompare(b.titre,'fr'));
   if (!grilles.length) c.append(carte('Votre première grille','Quatre niveaux et quatre critères sont proposés pour démarrer. Adaptez-les à votre APSA.'));
   for (const g of grilles) {
