@@ -269,14 +269,18 @@ async function saisir(c,id) {
     for(const s of contenu.querySelectorAll('select[data-statut-eleve]')) {const n=notes.get(s.dataset.statutEleve);s.value=typeof n?.valeur==='string' ? n.valeur : '';}
     majEchecs();
   }
-  // Ligne courte, bornée à deux lignes (components.css) : QUI et QUOI d'abord, la cause ensuite. Le détail complet est
-  // dans la ligne d'état du haut, seule annonce pour les lecteurs d'écran.
+  // Ligne courte, bornée à deux lignes (components.css) : la CAUSE d'abord — c'est elle qui dit quoi faire — puis qui
+  // et quoi, résumés au-delà de deux échecs. Le détail complet est dans l'infobulle et dans la ligne d'état du haut,
+  // seule annonce pour les lecteurs d'écran.
   function majEchecs() {
     const p=contenu.querySelector('.grille-echec');
     if(!p)return;
     const liste=[...echecs.values()], causes=[...new Set(liste.map(x => x.cause))];
     p.hidden=!liste.length;
-    p.textContent=liste.length ? `Non enregistré : ${liste.map(libelleEchec).join(', ')} — ${causes.length===1 ? causes[0] : 'plusieurs causes'}` : '';
+    const qui=liste.map(libelleEchec);
+    const court=qui.length>2 ? `${qui.slice(0,2).join(', ')} et ${qui.length-2} autre${qui.length>3 ? 's' : ''}` : qui.join(', ');
+    p.textContent=liste.length ? `Non enregistré — ${causes.length===1 ? causes[0] : 'plusieurs causes'} : ${court}` : '';
+    if(liste.length)p.title=`Non enregistré :\n${liste.map(x => `${libelleEchec(x)} — ${x.cause}`).join('\n')}`;else p.removeAttribute('title');
   }
   function score(e) {
     const n=notes.get(e.id), r=calculerGrille(g,n?.detail || {},ev.bareme);
@@ -349,15 +353,30 @@ async function saisir(c,id) {
   // La ligne d'erreur ne décide JAMAIS de la forme de la barre : un vrai message (conflit, stockage plein) faisait passer
   // la barre au-dessus de 15 %, elle quittait le pouce et le tap suivant écrivait un niveau pour un autre élève
   // (troisième revue). Seule la rangée de boutons compte ; la hauteur totale sert à la réserve et à la pile des messages.
+  // Hauteur de la dernière mesure, par barre : sert à savoir si elle a grandi, et si la vue a déjà été mesurée une fois
+  // (au premier rendu, une bascule n'a pas à être annoncée).
+  const mesuree=new WeakMap();
   function evaluerBarre(b) {
     if(!b?.isConnected)return;
     const echec=b.querySelector('.grille-echec'), total=b.getBoundingClientRect().height;
     const sansEchec=total-(echec && !echec.hidden ? echec.getBoundingClientRect().height+parseFloat(getComputedStyle(echec).marginBottom) : 0);
     document.documentElement.style.setProperty('--h-barre-grille',`${Math.ceil(total)}px`);
-    b.classList.toggle('grille-barre-libre',sansEchec>innerHeight*0.15);
-    // La barre qui grandit ne doit pas recouvrir la case qui a le focus (2.4.11).
+    // Hystérésis : décrocher au-delà de 15 %, ne raccrocher qu'en dessous de 13 %, pour ne pas basculer sur quelques
+    // pixels ; et quand la bascule arrive EN COURS de saisie, le dire (la barre change de place sans bruit sinon).
+    const libreAvant=b.classList.contains('grille-barre-libre');
+    const libre=sansEchec>innerHeight*(libreAvant ? 0.13 : 0.15);
+    b.classList.toggle('grille-barre-libre',libre);
+    if(mesuree.has(b) && libre!==libreAvant)annonce.textContent=libre
+      ? 'Écran trop court : « Élève précédent » et « Élève suivant » passent à la fin de la saisie.'
+      : '« Élève précédent » et « Élève suivant » sont de nouveau en bas de l’écran.';
+    // La barre qui GRANDIT ne doit pas recouvrir la case qui a le focus CLAVIER (2.4.11) — et rien d'autre : sans
+    // ces gardes, un tap au doigt armait un défilement de plusieurs centaines de pixels, sous le doigt, et le tap
+    // suivant tombait sur un autre élève (vérification finale v0.13.4).
     const f=document.activeElement;
-    if(f && contenu.contains(f) && !b.contains(f) && getComputedStyle(b).position==='fixed' && f.getBoundingClientRect().bottom>b.getBoundingClientRect().top)f.scrollIntoView({block:'nearest'});
+    mesuree.set(b,total);
+    if(!f || !contenu.contains(f) || b.contains(f) || getComputedStyle(b).position!=='fixed')return;
+    const r=f.getBoundingClientRect(), hautBarre=b.getBoundingClientRect().top;
+    if(f.matches(':focus-visible') && r.top<innerHeight && r.bottom>0 && r.bottom>hautBarre)f.scrollIntoView({block:'nearest'});
   }
   const mesureBarre='ResizeObserver' in window ? new ResizeObserver(entrees => {for(const x of entrees)evaluerBarre(x.target);}) : null;
   // La hauteur de la fenêtre peut changer sans que la barre change (écran partagé, redimensionnement) : on réévalue.
