@@ -218,7 +218,8 @@ fieldset.groupe legend {
 
 /* Action principale de l'écran d'appel, toujours atteignable : elle vivait sous la grille, donc
    hors de l'écran dès une vingtaine d'élèves (test de terrain du 2026-09-09). */
-.barre-appel {
+.barre-appel,
+.grille-barre {
   position: sticky;
   bottom: calc(var(--h-nav) + env(safe-area-inset-bottom) + 8px);
   z-index: 5;
@@ -230,7 +231,8 @@ fieldset.groupe legend {
   box-shadow: 0 2px 12px rgb(15 22 38 / 12%);
 }
 
-.barre-appel .rang-btn {
+.barre-appel .rang-btn,
+.grille-barre .rang-btn {
   margin-top: 0;
 }
 
@@ -242,9 +244,24 @@ fieldset.groupe legend {
    « Non enregistré : … » prime sur un bouton, et il s'efface au bout de quelques secondes ; l'inverse
    cacherait une erreur d'écriture derrière un bouton (revue du correctif de terrain). */
 
+/* Bande de 8 px entre la barre collante et la nav : un pouce qui vise la barre un peu bas y touchait ce qui défilait
+   dessous (case de grille, carte d'élève) sans le voir (revue v0.13.4). Zone transparente qui capte le toucher. */
+.barre-appel::after,
+.grille-barre::after {
+  content: '';
+  position: absolute;
+  inset-inline: -1px;
+  top: 100%;
+  height: 9px;
+}
+
 /* À l'impression, la barre redevient un bloc ordinaire : masquer le bloc entier ferait
    disparaître la ligne d'état « Appel complet ✓ (n/n) », qui s'imprimait avant ce correctif. */
 @media print {
+  .barre-appel::after {
+    display: none;
+  }
+
   .barre-appel {
     position: static;
     padding: 0;
@@ -1049,6 +1066,49 @@ dialog.visionneuse::backdrop {
 .grille-navigation .champ { flex: 1 1 200px; min-width: 0; }
 .grille-navigation .rang-btn { flex: 1 1 100%; }
 @media print { .grille-critere { break-inside: avoid; } .grille-selection { display: block; } }
+/* Saisie au téléphone (essai du 2026-09-17) : un élève doit tenir sur un écran. Avant : première case à 982 px sur
+   un écran de 812, « Élève suivant » à 1 921 px, 237 px par élève en mode « Par critère ». Les niveaux passent sur
+   une rangée — minimum en rem : deux colonnes seulement quand le texte est agrandi —, les cadres se resserrent. */
+.grille-saisie .grille-critere { padding: 6px 8px 8px; margin-block: 8px; }
+.grille-saisie .grille-critere > p { margin: 0 0 4px; font-size: .85rem; }
+.grille-saisie .grille-niveaux { grid-template-columns: repeat(auto-fit, minmax(min(3.75rem, 100%), 1fr)); gap: 4px; }
+.grille-saisie .grille-niveaux .btn { flex-direction: column; gap: 0; min-height: 48px; padding: 4px; font-size: clamp(.7rem, 3.3vw, .8rem); line-height: 1.2; hyphens: auto; }
+.grille-niveau-sep { display: none; }
+.grille-saisie .grille-niveau-nom { overflow-wrap: normal; hyphens: manual; }
+.grille-saisie.grille-niveaux-larges .grille-niveaux { grid-template-columns: repeat(auto-fit, minmax(min(7rem, 100%), 1fr)); }
+.grille-saisie.grille-niveaux-larges .grille-niveau-nom { overflow-wrap: anywhere; }
+/* La cible du pointeur reste la case : la fin d'une rafale remplace ses <span>, et un clic commencé sur l'un d'eux
+   était perdu à la souris (revue v0.13.4 ; même classe de défaut que FON-05). */
+.grille-saisie .grille-niveaux .btn > span { pointer-events: none; }
+/* À l'écran, le niveau choisi se lit sur la case pleine (nom et points) : la ligne « Satisfaisant · 4 points » ne reste
+   que pour les lecteurs d'écran et l'impression, où les cases sont masquées. Une ligne de moins par critère. */
+@media screen { .grille-saisie .grille-selection { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; } }
+.grille-niveau-points { font-size: .9em; font-weight: 400; }
+.grille-saisie > :first-child { scroll-margin-top: max(calc(4.75rem + env(safe-area-inset-top)), calc(var(--h-entete, 0px) + 0.5rem)); }
+.grille-entete-eleve { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: 12px; margin-top: 8px; }
+.grille-entete-eleve h2 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.grille-rang { font-size: .85rem; color: var(--c-texte-2); font-variant-numeric: tabular-nums; }
+.grille-saisie .grille-total { margin: 2px 0 0; }
+.grille-saisie .grille-score { margin: -4px 0 4px; text-align: start; }
+.grille-navigation { margin-block: 12px; }
+.grille-navigation .champ { flex-basis: 8.5rem; }
+/* Un élément atteint au clavier ne doit pas finir sous la barre collante (2.4.11). */
+#vue:has(.grille-barre) :is(a, button, input, select, textarea, [tabindex]) { scroll-margin-bottom: calc(var(--h-nav) + var(--h-barre-grille, 5.5rem) + 16px + env(safe-area-inset-bottom)); }
+/* Barre de la saisie. Téléphone en portrait : FIXE au-dessus de la nav, à la même place quel que soit le défilement
+   (collante, elle remontait en bas de page et un double tap tombait sur une case de l'élève suivant — contre-revue
+   v0.13.4) ; sa hauteur mesurée (--h-barre-grille) réserve la place sous la page. Elle redevient un bloc ordinaire sur
+   PC (nav latérale) et dès qu'elle dépasse 15 % de la hauteur de l'écran (texte agrandi, paysage : .grille-barre-libre). */
+@media (max-width: 899px) and (min-height: 30.0625rem) {
+  .grille-barre:not(.grille-barre-libre) { position: fixed; inset-inline: calc(16px + env(safe-area-inset-left)) calc(16px + env(safe-area-inset-right)); max-width: 728px; margin: 0 auto; bottom: calc(var(--h-nav) + env(safe-area-inset-bottom) + 8px); }
+  #vue:has(.grille-barre:not(.grille-barre-libre)) { padding-bottom: calc(var(--h-nav) + var(--h-barre-grille, 5rem) + 24px + env(safe-area-inset-bottom)); }
+}
+.grille-barre.grille-barre-libre { position: static; }
+.grille-barre.grille-barre-libre::after { display: none; }
+/* Échec d'écriture non rattrapé, sous le pouce et sans rien recouvrir ; la ligne d'état du haut reste la seule annonce. */
+.grille-echec { margin: 0 0 8px; color: var(--c-alerte); font-weight: 600; font-size: .9rem; }
+.grille-echec[hidden] { display: none; }
+.grille-barre .rang-btn { flex-wrap: nowrap; }
+.grille-barre .btn { flex: 1 1 0; min-width: 0; padding-inline: 8px; white-space: normal; overflow-wrap: anywhere; hyphens: auto; }
 
 /* Case ou statut dont l'écriture est en cours (saisie par grille) : signalé, jamais verrouillé (FON-05).
    EN FIN DE FEUILLE et plus spécifique : le contour pointillé doit l'emporter sur le contour plein d'une case

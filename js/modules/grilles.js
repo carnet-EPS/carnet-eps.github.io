@@ -117,6 +117,10 @@ async function saisir(c,id) {
   // attend son tour. L'ancien verrou « occupe » désactivait tous les contrôles — sans style visible — et
   // JETAIT le tap suivant (audit indépendant 2026-09-16, FON-05 / PER-05).
   let enAttente=0, erreurs=[];
+  // Échecs NON rattrapés, par élève ET par critère (ou statut) : la ligne d'erreur de la barre reste tant que CE choix
+  // n'a pas été réécrit avec succès — réussir un autre critère du même élève ne rend pas le niveau refusé. Un message de 8 s posé sur la barre avalait « Élève suivant » et s'effaçait sans trace
+  // (contre-revue v0.13.4).
+  const echecs=new Map();
   // Détail VOULU par élève pendant une rafale : chaque tap se juge sur l'état laissé par les taps précédents,
   // ni sur l'écran rendu ni sur la base. « Retoucher efface » donne ainsi le même résultat, que le second tap
   // arrive pendant ou après l'écriture du premier (revue v0.13.1). Vidé en fin de rafale : la base refait foi.
@@ -124,16 +128,31 @@ async function saisir(c,id) {
   const detailVoulu=e => voulus.get(e.id) ?? notes.get(e.id)?.detail ?? {};
   const connecte=cle => cle ? [...c.querySelectorAll('[data-grille-focus]')].find(x => x.dataset.grilleFocus===cle) : undefined;
   const texteSelection=(d,cr) => {const sel=g.niveaux.find(n => n.cle===cleChoix(d[cr.id]));return sel ? `${sel.libelle} · ${formatFR(pointsChoix(g,d[cr.id])*cr.poids)} points` : 'Non évalué';};
-  const libelleNiveau=(d,cr,n) => {
+  const partiesNiveau=(d,cr,n) => {
     const ajuste=cleChoix(d[cr.id])===n.cle && typeof d[cr.id]==='object';
-    return `${n.libelle} · ${ajuste ? `${formatFR(pointsChoix(g,d[cr.id])*cr.poids)} / ${formatFR(n.points*cr.poids)} points` : `${formatFR(n.points*cr.poids)} pt`}`;
+    return [n.libelle, ajuste ? `${formatFR(pointsChoix(g,d[cr.id])*cr.poids)} / ${formatFR(n.points*cr.poids)} points` : `${formatFR(n.points*cr.poids)} pt`];
+  };
+  // Nom du niveau sur une ligne, points sur la suivante : dans une case étroite, « Fragile · 2 » puis « pt » passaient
+  // à la ligne (essai du 2026-09-17). Le nom accessible et le texte restent « Nom · points ».
+  const etiqueter=(b,d,cr,n) => {
+    const [nom,points]=partiesNiveau(d,cr,n);
+    b.replaceChildren(el('span',{class:'grille-niveau-nom'},nom),el('span',{class:'grille-niveau-sep'},' · '),el('span',{class:'grille-niveau-points'},points));
+    b.setAttribute('aria-label',`${nom} · ${points}`);
   };
   const nav=el('div',{class:'grille-navigation no-print'}), contenu=el('div'), statut=el('p',{role:'status',class:'statut'});
+  // Changer d'élève garde le focus sur « Élève suivant » : sans annonce, un lecteur d'écran ne sait pas qu'un autre
+  // élève est affiché (revue v0.13.4). Région permanente, vide au départ (B27).
+  const annonce=el('p',{class:'sr-only',role:'status'});
   const selEleve=el('select',{'aria-label':'Élève à évaluer'},...eleves.map((e,i) => el('option',{value:String(i)},`${e.nom} ${e.prenom}`)));
   const selCritere=el('select',{'aria-label':'Critère à évaluer'},...g.criteres.map(cr => el('option',{value:cr.id},cr.libelle)));
   const selMode=el('select',{'aria-label':'Mode de saisie'},el('option',{value:'eleve'},'Par élève'),el('option',{value:'critere'},'Par critère'),el('option',{value:'bilan'},'Bilan de la classe'));
-  selEleve.addEventListener('change',() => {index=Number(selEleve.value);rendre();});
-  selCritere.addEventListener('change',() => {critere=selCritere.value;rendre();});
+  // Choisir dans une liste ramène la saisie en haut, sauf au clavier : chaque flèche émet « change » et la liste
+  // focalisée sortirait de l'écran. Le dernier geste fait foi — `:focus-visible` est vrai sur un <select> touché
+  // dans Chromium et ne distinguait rien (contre-revue v0.13.4).
+  const auClavier=new WeakMap();
+  for(const sel of [selEleve,selCritere]) {sel.addEventListener('keydown',() => auClavier.set(sel,true));sel.addEventListener('pointerdown',() => auClavier.set(sel,false));}
+  selEleve.addEventListener('change',() => {index=Number(selEleve.value);rendre();if(!auClavier.get(selEleve))haut();});
+  selCritere.addEventListener('change',() => {critere=selCritere.value;rendre();if(!auClavier.get(selCritere))haut();});
   selMode.addEventListener('change',() => {mode=selMode.value;rendre();});
   const groupeEleve=el('label',{class:'champ'},'Élève',selEleve), groupeCritere=el('label',{class:'champ'},'Critère',selCritere);
   const reutiliser=bouton('Réutiliser cette grille',async () => {
@@ -143,8 +162,12 @@ async function saisir(c,id) {
       await enregistrer('grilles',copie);location.hash=`#/grilles/modifier/${copie.id}`;
     } catch(e) {erreur(e);reutiliser.disabled=false;}
   });
-  nav.append(el('label',{class:'champ'},'Saisir ou consulter',selMode),groupeEleve,groupeCritere,el('div',{class:'rang-btn'},bouton('Imprimer',() => window.print()),el('a',{class:'btn',href:`#/notes/eval/${id}`},'Notes et export Pronote'),reutiliser));
-  c.append(nav,statut,contenu);
+  nav.append(el('label',{class:'champ'},'Saisir ou consulter',selMode),groupeEleve,groupeCritere);
+  // Actions de bureau SOUS la saisie : au-dessus, elles repoussaient la première case hors du premier écran du
+  // téléphone (essai du 2026-09-17 : première case à 982 px sur un écran de 812).
+  const outils=el('div',{class:'rang-btn no-print grille-outils'},bouton('Imprimer',() => window.print()),el('a',{class:'btn',href:`#/notes/eval/${id}`},'Notes et export Pronote'),reutiliser);
+  contenu.className='grille-saisie';
+  c.append(nav,statut,contenu,outils,annonce);
   // La règle d'effacement vaut pour toutes les grilles : elle n'était affichée qu'avec les points ajustables (revue v0.13.1).
   c.insertBefore(el('p',{class:'no-print grille-consigne'},`Touchez une case pour choisir le niveau. Retoucher le niveau sélectionné efface ce critère.${g.pointsAjustables ? ' Appui long ou bouton Ajuster : choisir les points.' : ''}`),contenu);
   // `modifier(detail)` est une fonction pure, décidée au tap. Elle s'applique deux fois : tout de suite sur le
@@ -153,6 +176,7 @@ async function saisir(c,id) {
   // réécrit en douce par l'écriture suivante.
   function enregistrerChoix(e,modifier,{code,cle,cr}={}) {
     enAttente++;
+    const cleEchec=`${e.id}|${cr ? cr.id : 'statut'}`;
     voulus.set(e.id,modifier(detailVoulu(e)));
     const cible=connecte(cle);
     cible?.setAttribute('aria-busy','true'); // la case touchée se voit ; rien n'est verrouillé
@@ -172,7 +196,8 @@ async function saisir(c,id) {
           [{store:'notes',...(valeur===null ? {op:'delete',cle:rec.id} : {op:'put',valeur:rec})}],
           [{id:rec.id,note:notes.get(e.id) || null}]);
         if(valeur===null)notes.delete(e.id);else notes.set(e.id,rec);
-      } catch(err) {erreurs.push({qui:`${e.nom} ${e.prenom}`,err});}
+        echecs.delete(cleEchec);
+      } catch(err) {erreurs.push({qui:`${e.nom} ${e.prenom}`,err});echecs.set(cleEchec,`${e.nom} ${e.prenom}${cr ? ` · ${cr.libelle}` : ''} (${err?.message || String(err)})`);}
       finally {
         enAttente--;
         // Une seule mise à jour par rafale, quand la dernière écriture est passée : l'écran montre l'état
@@ -186,7 +211,9 @@ async function saisir(c,id) {
             const texte=`Non enregistré pour ${[...causes].map(([qui,cause]) => `${qui} (${cause})`).join(', ')}`;
             erreurs=[];
             statut.textContent=texte; statut.className='statut statut-erreur';
-            if(!c.isConnected)toast(texte); // vue quittée : le statut est détaché, l'échec doit se voir (comme notes.js)
+            // Vue affichée : la ligne d'erreur de la barre (majEchecs) montre l'échec sous le pouce, sans rien recouvrir,
+            // et la ligne d'état reste la seule annonce. Vue quittée : les deux sont détachées, un message prend le relais.
+            if(!c.isConnected)toast(texte);
           } else {statut.textContent='Enregistré ✓';statut.className='statut statut-ok';}
           if(c.isConnected)actualiser();
         }
@@ -202,7 +229,7 @@ async function saisir(c,id) {
     for(const x of bloc.querySelectorAll('[data-niveau-cle]')) {
       const actif=x.dataset.niveauCle===choix, n=g.niveaux.find(y => y.cle===x.dataset.niveauCle);
       x.setAttribute('aria-pressed',String(actif));x.classList.toggle('btn-principal',actif);
-      if(n)x.textContent=libelleNiveau(d,cr,n);
+      if(n)etiqueter(x,d,cr,n);
     }
   }
   // Fin de rafale : l'écran se met à jour EN PLACE. Reconstruire les cases détachait celle qu'on touchait, qu'on
@@ -217,6 +244,13 @@ async function saisir(c,id) {
     }
     for(const p of contenu.querySelectorAll('[data-score-eleve]')) {const e=eleveDe(p.dataset.scoreEleve);if(e)p.textContent=score(e);}
     for(const s of contenu.querySelectorAll('select[data-statut-eleve]')) {const n=notes.get(s.dataset.statutEleve);s.value=typeof n?.valeur==='string' ? n.valeur : '';}
+    majEchecs();
+  }
+  function majEchecs() {
+    const p=contenu.querySelector('.grille-echec');
+    if(!p)return;
+    p.hidden=!echecs.size;
+    p.textContent=echecs.size ? `Non enregistré : ${[...echecs.values()].join(', ')}` : '';
   }
   function score(e) {
     const n=notes.get(e.id), r=calculerGrille(g,n?.detail || {},ev.bareme);
@@ -230,10 +264,11 @@ async function saisir(c,id) {
     bloc.append(el('p',{class:'grille-selection'},texteSelection(detail,cr)));
     const boutons=el('div',{class:'grille-niveaux no-print'});
     g.niveaux.forEach((n,i) => {
-      const b=bouton(libelleNiveau(detail,cr,n),() => {
+      const b=bouton('',() => {
         const effacer=cleChoix(detailVoulu(e)[cr.id])===n.cle;
         enregistrerChoix(e,d => {const prochain={...d};if(effacer)delete prochain[cr.id];else prochain[cr.id]=n.cle;return prochain;},{cle:b.dataset.grilleFocus,cr});
       },`btn${choix===n.cle ? ' btn-principal':''}`);
+      etiqueter(b,detail,cr,n);
       b.setAttribute('aria-pressed',String(n.cle===choix));
       b.dataset.grilleFocus=JSON.stringify([e.id,cr.id,n.cle]);
       b.dataset.niveauCle=n.cle;
@@ -281,28 +316,66 @@ async function saisir(c,id) {
       if(selection!==null && c.isConnected)enregistrerChoix(e,d => ({...d,[cr.id]:{niveau:n.cle,points:selection}}),{cle,cr});
     },{once:true});
   }
+  // Barre sous le pouce, comme « Terminer l'appel » : « Élève suivant » était à deux écrans de la première case (essai
+  // du 2026-09-17). Sur téléphone elle est FIXE (components.css) : collante dans la page, elle changeait de place
+  // selon le défilement et un double tap tombait sur une case de l'élève suivant (contre-revue v0.13.4). Sa hauteur
+  // mesurée réserve la place sous la saisie ; au-delà de 15 % de l'écran (texte agrandi), elle redevient un bloc.
+  const mesureBarre='ResizeObserver' in window ? new ResizeObserver(entrees => {
+    for(const x of entrees) {
+      if(!x.target.isConnected)continue;
+      const h=Math.ceil(x.target.getBoundingClientRect().height);
+      c.style.setProperty('--h-barre-grille',`${h}px`);
+      x.target.classList.toggle('grille-barre-libre',h>innerHeight*0.15);
+    }
+  }) : null;
+  let barreMesuree=null;
+  const barre=(...boutons) => {
+    const echec=el('p',{class:'grille-echec'});
+    const b=el('div',{class:'grille-barre no-print'},echec,el('div',{class:'rang-btn'},...boutons));
+    if(mesureBarre) {if(barreMesuree)mesureBarre.unobserve(barreMesuree);mesureBarre.observe(b);barreMesuree=b;}
+    return b;
+  };
+  // Un nom de niveau ne se coupe qu'aux espaces ; si un mot ne tient pas dans sa case, les cases s'élargissent (moins
+  // de colonnes) plutôt que d'afficher « Satisfai-sant ». Mesuré et non deviné : la largeur dépend de la police du
+  // téléphone (contre-revue v0.13.4).
+  function ajusterColonnes() {
+    if(!contenu.isConnected)return;
+    contenu.classList.remove('grille-niveaux-larges');
+    if([...contenu.querySelectorAll('.grille-niveaux button[data-niveau-cle]')].some(b => b.scrollWidth>b.clientWidth+1))contenu.classList.add('grille-niveaux-larges');
+  }
+  let largeurVue=0;
+  if('ResizeObserver' in window)new ResizeObserver(() => {const l=Math.round(contenu.getBoundingClientRect().width);if(l!==largeurVue) {largeurVue=l;ajusterColonnes();}}).observe(contenu);
+  // Changer d'élève ou de critère ramène le début de la saisie en haut de l'écran : on finit un élève en bas de
+  // page, le suivant commence en haut. Le focus reste sur le bouton (rendre), la barre collante le garde visible.
+  const haut=() => contenu.firstElementChild?.scrollIntoView({block:'start',behavior:'instant'});
+  function allerEleve(i) {
+    index=(i+eleves.length)%eleves.length;selEleve.value=String(index);rendre();haut();
+    annonce.textContent=`${eleves[index].nom} ${eleves[index].prenom}, élève ${index+1} sur ${eleves.length}`;
+  }
   function rendre() {
     const navigationFocus = document.activeElement?.dataset.grilleNavigation;
     contenu.replaceChildren();groupeEleve.hidden=mode!=='eleve';groupeCritere.hidden=mode!=='critere';
     if(mode==='eleve') {
       const e=eleves[index];
-      contenu.append(el('h2',{},`${e.nom} ${e.prenom}`),el('p',{class:'grille-total',role:'status','data-score-eleve':e.id},score(e)));
+      contenu.append(el('div',{class:'grille-entete-eleve'},el('h2',{},`${e.nom} ${e.prenom}`),el('span',{class:'grille-rang'},`${index+1} / ${eleves.length}`)),
+        el('p',{class:'grille-total',role:'status','data-score-eleve':e.id},score(e)));
+      for(const cr of g.criteres)contenu.append(ligne(e,cr));
       const code=el('select',{'aria-label':'Statut de l’élève','data-statut-eleve':e.id},el('option',{value:''},'Évaluer avec la grille'),...['ABS','DISP','NN'].map(x => el('option',{value:x},x)));
       code.dataset.grilleFocus=JSON.stringify([e.id,'statut']);
       code.value=typeof notes.get(e.id)?.valeur==='string' ? notes.get(e.id).valeur:'';
       code.addEventListener('change',() => enregistrerChoix(e,d => d,{code:code.value || null,cle:code.dataset.grilleFocus}));
-      contenu.append(el('label',{class:'champ no-print'},'Absence / dispense / non noté',code));
-      for(const cr of g.criteres)contenu.append(ligne(e,cr));
-      const suivant=bouton('Élève suivant',() => {index=(index+1)%eleves.length;selEleve.value=String(index);rendre();});
-      const precedent=bouton('Élève précédent',() => {index=(index+eleves.length-1)%eleves.length;selEleve.value=String(index);rendre();});
+      // Le statut (ABS, DISP, NN) vient après les critères : plus rare, il ne doit pas repousser les cases.
+      contenu.append(el('label',{class:'champ no-print grille-statut'},'Absence / dispense / non noté',code));
+      const suivant=bouton('Élève suivant',() => allerEleve(index+1));
+      const precedent=bouton('Élève précédent',() => allerEleve(index-1));
       precedent.dataset.grilleNavigation='precedent';suivant.dataset.grilleNavigation='suivant';
-      contenu.append(el('div',{class:'rang-btn no-print'},precedent,suivant));
+      contenu.append(barre(precedent,suivant));majEchecs();
     } else if(mode==='critere') {
       const cr=g.criteres.find(x => x.id===critere);contenu.append(el('h2',{},cr.libelle));
-      for(const e of eleves)contenu.append(ligne(e,cr),el('p',{class:'note-discrete','data-score-eleve':e.id},score(e)));
-      const suivantCritere=bouton('Critère suivant',() => {critere=g.criteres[(g.criteres.findIndex(x=>x.id===critere)+1)%g.criteres.length].id;selCritere.value=critere;rendre();});
+      for(const e of eleves)contenu.append(ligne(e,cr),el('p',{class:'note-discrete grille-score','data-score-eleve':e.id},score(e)));
+      const suivantCritere=bouton('Critère suivant',() => {critere=g.criteres[(g.criteres.findIndex(x=>x.id===critere)+1)%g.criteres.length].id;selCritere.value=critere;rendre();haut();annonce.textContent=`Critère : ${g.criteres.find(x => x.id===critere).libelle}`;});
       suivantCritere.dataset.grilleNavigation='critere';
-      contenu.append(el('div',{class:'rang-btn no-print'},suivantCritere));
+      contenu.append(barre(suivantCritere));majEchecs();
     } else {
       contenu.append(el('h2',{},'Bilan par critère'),el('p',{},'Réussite = points obtenus / points possibles sur les critères observés. Les élèves ABS, DISP et NN sont exclus.'));
       const table=el('table',{class:'table-apercu'},el('caption',{},`${classe.nom} — ${ev.titre}`),el('thead',{},el('tr',{},...['Critère','Observés','Réussite'].map(t => el('th',{scope:'col'},t)))));
@@ -310,6 +383,7 @@ async function saisir(c,id) {
       for(const cr of g.criteres){const vals=eleves.map(e => notes.get(e.id)).filter(n => typeof n?.valeur==='number' && Object.hasOwn(n.detail || {},cr.id)).map(n => pointsChoix(g,n.detail[cr.id]));body.append(el('tr',{},el('th',{scope:'row'},cr.libelle),el('td',{},`${vals.length}/${eleves.length}`),el('td',{},vals.length ? `${formatFR(vals.reduce((a,b)=>a+b,0)/vals.length/Math.max(...g.niveaux.map(n=>n.points))*100)} %`:'Non évalué')));}
       table.append(body);contenu.append(el('div',{class:'table-scroll'},table));
     }
+    ajusterColonnes();
     if (navigationFocus && c.isConnected) [...contenu.querySelectorAll('[data-grille-navigation]')].find(b => b.dataset.grilleNavigation === navigationFocus)?.focus({preventScroll:true});
   }
   rendre();
