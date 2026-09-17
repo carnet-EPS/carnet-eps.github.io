@@ -1076,7 +1076,8 @@ dialog.visionneuse::backdrop {
 .grille-niveau-sep { display: none; }
 .grille-saisie .grille-niveau-nom { overflow-wrap: normal; hyphens: manual; }
 .grille-saisie.grille-niveaux-larges .grille-niveaux { grid-template-columns: repeat(auto-fit, minmax(min(7rem, 100%), 1fr)); }
-.grille-saisie.grille-niveaux-larges .grille-niveau-nom { overflow-wrap: anywhere; }
+.grille-saisie.grille-niveaux-seule .grille-niveaux { grid-template-columns: minmax(0, 1fr); }
+.grille-saisie.grille-niveaux-coupe .grille-niveau-nom { overflow-wrap: anywhere; }
 /* La cible du pointeur reste la case : la fin d'une rafale remplace ses <span>, et un clic commencé sur l'un d'eux
    était perdu à la souris (revue v0.13.4 ; même classe de défaut que FON-05). */
 .grille-saisie .grille-niveaux .btn > span { pointer-events: none; }
@@ -1101,11 +1102,13 @@ dialog.visionneuse::backdrop {
 @media (max-width: 899px) and (min-height: 30.0625rem) {
   .grille-barre:not(.grille-barre-libre) { position: fixed; inset-inline: calc(16px + env(safe-area-inset-left)) calc(16px + env(safe-area-inset-right)); max-width: 728px; margin: 0 auto; bottom: calc(var(--h-nav) + env(safe-area-inset-bottom) + 8px); }
   #vue:has(.grille-barre:not(.grille-barre-libre)) { padding-bottom: calc(var(--h-nav) + var(--h-barre-grille, 5rem) + 24px + env(safe-area-inset-bottom)); }
+  /* Les messages (« Nouvelle version », « Annuler ») passent AU-DESSUS de la barre fixe, pas dessus (troisième revue). */
+  body:has(.grille-barre:not(.grille-barre-libre)) .toasts { bottom: calc(var(--h-nav) + var(--h-barre-grille, 5rem) + 16px + env(safe-area-inset-bottom)); }
 }
 .grille-barre.grille-barre-libre { position: static; }
 .grille-barre.grille-barre-libre::after { display: none; }
 /* Échec d'écriture non rattrapé, sous le pouce et sans rien recouvrir ; la ligne d'état du haut reste la seule annonce. */
-.grille-echec { margin: 0 0 8px; color: var(--c-alerte); font-weight: 600; font-size: .9rem; }
+.grille-echec { margin: 0 0 8px; color: var(--c-alerte); font-weight: 600; font-size: .9rem; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .grille-echec[hidden] { display: none; }
 .grille-barre .rang-btn { flex-wrap: nowrap; }
 .grille-barre .btn { flex: 1 1 0; min-width: 0; padding-inline: 8px; white-space: normal; overflow-wrap: anywhere; hyphens: auto; }

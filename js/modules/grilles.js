@@ -118,9 +118,26 @@ async function saisir(c,id) {
   // JETAIT le tap suivant (audit indépendant 2026-09-16, FON-05 / PER-05).
   let enAttente=0, erreurs=[];
   // Échecs NON rattrapés, par élève ET par critère (ou statut) : la ligne d'erreur de la barre reste tant que CE choix
-  // n'a pas été réécrit avec succès — réussir un autre critère du même élève ne rend pas le niveau refusé. Un message de 8 s posé sur la barre avalait « Élève suivant » et s'effaçait sans trace
-  // (contre-revue v0.13.4).
+  // n'a pas été réécrit avec succès — réussir un autre critère du même élève ne rend pas le niveau refusé. Un message de
+  // 8 s posé sur la barre avalait « Élève suivant » et s'effaçait sans trace (contre-revue v0.13.4). Gardés dans la
+  // SESSION (le message de conflit demande de recharger la page), par identifiants seulement — jamais de nom d'élève
+  // hors d'IndexedDB — et écartés à la réouverture quand la base contient déjà le choix voulu (troisième revue).
+  const cleSession=`carnet-eps:grille-echecs:${id}`;
   const echecs=new Map();
+  try {
+    for(const [k,x] of JSON.parse(sessionStorage.getItem(cleSession) || '[]')) {
+      if(!eleves.some(e => e.id===x.eleveId) || (x.critereId && !g.criteres.some(cr => cr.id===x.critereId)))continue;
+      const n=notes.get(x.eleveId);
+      const rattrape=x.critereId ? JSON.stringify(n?.detail?.[x.critereId] ?? null)===JSON.stringify(x.voulu ?? null)
+        : (typeof n?.valeur==='string' ? n.valeur : null)===(x.code ?? null);
+      if(!rattrape)echecs.set(k,x);
+    }
+  } catch {/* session indisponible ou illisible : on repart sans liste */}
+  const sauverEchecs=() => {try {if(echecs.size)sessionStorage.setItem(cleSession,JSON.stringify([...echecs]));else sessionStorage.removeItem(cleSession);} catch {/* sans session */}};
+  const libelleEchec=x => {
+    const e=eleves.find(y => y.id===x.eleveId), cr=x.critereId && g.criteres.find(y => y.id===x.critereId);
+    return `${e ? `${e.nom} ${e.prenom}` : 'Élève'} · ${cr ? cr.libelle : `statut ${x.code || 'Évaluer avec la grille'}`}`;
+  };
   // Détail VOULU par élève pendant une rafale : chaque tap se juge sur l'état laissé par les taps précédents,
   // ni sur l'écran rendu ni sur la base. « Retoucher efface » donne ainsi le même résultat, que le second tap
   // arrive pendant ou après l'écriture du premier (revue v0.13.1). Vidé en fin de rafale : la base refait foi.
@@ -196,8 +213,14 @@ async function saisir(c,id) {
           [{store:'notes',...(valeur===null ? {op:'delete',cle:rec.id} : {op:'put',valeur:rec})}],
           [{id:rec.id,note:notes.get(e.id) || null}]);
         if(valeur===null)notes.delete(e.id);else notes.set(e.id,rec);
-        echecs.delete(cleEchec);
-      } catch(err) {erreurs.push({qui:`${e.nom} ${e.prenom}`,err});echecs.set(cleEchec,`${e.nom} ${e.prenom}${cr ? ` · ${cr.libelle}` : ''} (${err?.message || String(err)})`);}
+        if(echecs.delete(cleEchec))sauverEchecs();
+      } catch(err) {
+        erreurs.push({qui:`${e.nom} ${e.prenom}`,err});
+        let voulu=null;
+        try {voulu=cr ? (modifier(notes.get(e.id)?.detail || {})[cr.id] ?? null) : null;} catch {/* choix non recalculable */}
+        echecs.set(cleEchec,{eleveId:e.id,critereId:cr ? cr.id : null,code:cr ? null : (code ?? null),voulu,cause:err?.message || String(err)});
+        sauverEchecs();
+      }
       finally {
         enAttente--;
         // Une seule mise à jour par rafale, quand la dernière écriture est passée : l'écran montre l'état
@@ -246,11 +269,14 @@ async function saisir(c,id) {
     for(const s of contenu.querySelectorAll('select[data-statut-eleve]')) {const n=notes.get(s.dataset.statutEleve);s.value=typeof n?.valeur==='string' ? n.valeur : '';}
     majEchecs();
   }
+  // Ligne courte, bornée à deux lignes (components.css) : QUI et QUOI d'abord, la cause ensuite. Le détail complet est
+  // dans la ligne d'état du haut, seule annonce pour les lecteurs d'écran.
   function majEchecs() {
     const p=contenu.querySelector('.grille-echec');
     if(!p)return;
-    p.hidden=!echecs.size;
-    p.textContent=echecs.size ? `Non enregistré : ${[...echecs.values()].join(', ')}` : '';
+    const liste=[...echecs.values()], causes=[...new Set(liste.map(x => x.cause))];
+    p.hidden=!liste.length;
+    p.textContent=liste.length ? `Non enregistré : ${liste.map(libelleEchec).join(', ')} — ${causes.length===1 ? causes[0] : 'plusieurs causes'}` : '';
   }
   function score(e) {
     const n=notes.get(e.id), r=calculerGrille(g,n?.detail || {},ev.bareme);
@@ -320,14 +346,23 @@ async function saisir(c,id) {
   // du 2026-09-17). Sur téléphone elle est FIXE (components.css) : collante dans la page, elle changeait de place
   // selon le défilement et un double tap tombait sur une case de l'élève suivant (contre-revue v0.13.4). Sa hauteur
   // mesurée réserve la place sous la saisie ; au-delà de 15 % de l'écran (texte agrandi), elle redevient un bloc.
-  const mesureBarre='ResizeObserver' in window ? new ResizeObserver(entrees => {
-    for(const x of entrees) {
-      if(!x.target.isConnected)continue;
-      const h=Math.ceil(x.target.getBoundingClientRect().height);
-      c.style.setProperty('--h-barre-grille',`${h}px`);
-      x.target.classList.toggle('grille-barre-libre',h>innerHeight*0.15);
-    }
-  }) : null;
+  // La ligne d'erreur ne décide JAMAIS de la forme de la barre : un vrai message (conflit, stockage plein) faisait passer
+  // la barre au-dessus de 15 %, elle quittait le pouce et le tap suivant écrivait un niveau pour un autre élève
+  // (troisième revue). Seule la rangée de boutons compte ; la hauteur totale sert à la réserve et à la pile des messages.
+  function evaluerBarre(b) {
+    if(!b?.isConnected)return;
+    const echec=b.querySelector('.grille-echec'), total=b.getBoundingClientRect().height;
+    const sansEchec=total-(echec && !echec.hidden ? echec.getBoundingClientRect().height+parseFloat(getComputedStyle(echec).marginBottom) : 0);
+    document.documentElement.style.setProperty('--h-barre-grille',`${Math.ceil(total)}px`);
+    b.classList.toggle('grille-barre-libre',sansEchec>innerHeight*0.15);
+    // La barre qui grandit ne doit pas recouvrir la case qui a le focus (2.4.11).
+    const f=document.activeElement;
+    if(f && contenu.contains(f) && !b.contains(f) && getComputedStyle(b).position==='fixed' && f.getBoundingClientRect().bottom>b.getBoundingClientRect().top)f.scrollIntoView({block:'nearest'});
+  }
+  const mesureBarre='ResizeObserver' in window ? new ResizeObserver(entrees => {for(const x of entrees)evaluerBarre(x.target);}) : null;
+  // La hauteur de la fenêtre peut changer sans que la barre change (écran partagé, redimensionnement) : on réévalue.
+  const surRedimension=() => {if(!c.isConnected) {removeEventListener('resize',surRedimension);return;} evaluerBarre(barreMesuree);};
+  addEventListener('resize',surRedimension);
   let barreMesuree=null;
   const barre=(...boutons) => {
     const echec=el('p',{class:'grille-echec'});
@@ -338,10 +373,12 @@ async function saisir(c,id) {
   // Un nom de niveau ne se coupe qu'aux espaces ; si un mot ne tient pas dans sa case, les cases s'élargissent (moins
   // de colonnes) plutôt que d'afficher « Satisfai-sant ». Mesuré et non deviné : la largeur dépend de la police du
   // téléphone (contre-revue v0.13.4).
+  const PALIERS=['grille-niveaux-larges','grille-niveaux-seule','grille-niveaux-coupe'];
   function ajusterColonnes() {
     if(!contenu.isConnected)return;
-    contenu.classList.remove('grille-niveaux-larges');
-    if([...contenu.querySelectorAll('.grille-niveaux button[data-niveau-cle]')].some(b => b.scrollWidth>b.clientWidth+1))contenu.classList.add('grille-niveaux-larges');
+    contenu.classList.remove(...PALIERS);
+    const deborde=() => [...contenu.querySelectorAll('.grille-niveaux button[data-niveau-cle]')].some(b => b.scrollWidth>b.clientWidth+1);
+    for(const p of PALIERS) {if(!deborde())break;contenu.classList.add(p);}
   }
   let largeurVue=0;
   if('ResizeObserver' in window)new ResizeObserver(() => {const l=Math.round(contenu.getBoundingClientRect().width);if(l!==largeurVue) {largeurVue=l;ajusterColonnes();}}).observe(contenu);
