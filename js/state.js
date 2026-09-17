@@ -2,14 +2,15 @@
 // jamais de données élèves ici — elles vivent dans IndexedDB via io.js).
 
 // Version applicative : synchroniser avec VERSION du service-worker à chaque déploiement.
-export const VERSION_APP = '0.13.2';
+export const VERSION_APP = '0.13.3';
 
 // Période à deux adresses (audit indépendant 2026-09-16, FON-01) : la v0.13 tourne sur l'origine dédiée
 // avec des données FICTIVES pendant que les vraies restent sur l'ancienne adresse. Tant que ce drapeau
 // est vrai, l'en-tête, le titre de l'onglet et le manifeste (nom court « EPS essai ») le disent, pour
 // qu'aucune saisie réelle n'atterrisse ici. À passer à false (manifeste compris : un test de cohérence
 // l'exige) et à publier AVANT le premier import de vraies données, jamais après.
-export const MODE_ESSAI = true;
+// Mis en service le 2026-09-17 (v0.13.3) : ne le repasser à true que sur une origine sans vraies données.
+export const MODE_ESSAI = false;
 
 const CLE_PREFS = 'carnet-eps:prefs';
 

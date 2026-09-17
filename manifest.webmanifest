@@ -1,6 +1,6 @@
 {
-  "name": "Carnet EPS — version d’essai",
-  "short_name": "EPS essai",
+  "name": "Carnet EPS",
+  "short_name": "Carnet EPS",
   "description": "Le carnet de bord du professeur d'EPS — appel, inaptitudes, notes, EDT. 100 % local et hors ligne.",
   "lang": "fr",
   "id": "/carnet-eps/",
